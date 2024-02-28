@@ -1,0 +1,336 @@
+---
+title: "Genetic_structure_T_Adapcon_Gentree"
+author: "Thomas Francisco"
+date: "2024-02-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pcadapt)
+library(ggplot2)
+library(LEA)
+library(rnaturalearth)
+library(scatterpie)
+```
+
+The goal here is to analyse the genetic structure of the species and check if the structure of some individuals/populations is not drive by the Na. To do so, we will plot the size of the sampled points on the PCa depending on their Na percentage.
+```{r PCa with Na}
+
+#file with Na
+load(file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_Adapcon_Gentree.Rdata")
+gen_data_non_imputed <- gen_data_filtered_T_adapcon_gentree
+
+#load metadata
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+meta_data_vcf_427 <- meta_data_vcf[meta_data_vcf$VCF_ID %in% row.names(gen_data_non_imputed),]
+
+
+##change the format of the Na to be in the same format as geno file
+geno_non_imputed <- data.frame(replace(gen_data_non_imputed, is.na(gen_data_non_imputed),9))#Na into 9 to have a geno format
+
+#We're gonna used the Pcadapt function to perform the PCa. The format of the input dataset is: row: SNPs, columns: individuals and missing data in 9.
+
+#If necessary, transpose the dataset
+data_PCa_non_imputed <- data.frame(t(geno_non_imputed[,-c(6168)]))
+
+#format for pcadapt
+data_pcadapt_non_imputed <- read.pcadapt(data_PCa_non_imputed)
+
+#perform the Pca
+Pca_non_imputed <-pcadapt(data_pcadapt_non_imputed,K=10,method = "mahalanobis")
+
+#
+plot(Pca_non_imputed$singular.values, type="b")
+
+
+score_Pca_non_imputed <- data.frame(Pca_non_imputed$scores[,1:3],row.names(gen_data_non_imputed));colnames(score_Pca_non_imputed) <- c("PC1","PC2","PC3","VCF_ID")
+
+PCa_df_non_imputed <- merge(score_Pca_non_imputed, meta_data_vcf_427,"VCF_ID")
+
+ggplot_representation <- ggplot()+
+  geom_point(data=PCa_df_non_imputed, aes( PC1, PC3, size = geno_non_imputed$na_percentage, color= PCa_df_non_imputed$Country)) +
+  scale_colour_manual(name="Main gene pool",
+                      values = c("orangered3","gold2","darkorchid3","navyblue","turquoise2","green3","blue","red","black","gray","orange","darkgreen"))
+  
+  ggplot_representation
+
+  
+  #file without Na
+load(file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_inputed_T_Adapcon_Gentree.Rdata")
+gen_data_imputed <- vcf_filtered_inputed_T_Adapcon_Gentree
+
+#We're gonna used the Pcadapt function to perform the PCa. The format of the input dataset is: row: SNPs, columns: individuals and missing data in 9.
+
+#If necessary, transpose the dataset
+data_PCa_imputed <- data.frame(t(gen_data_imputed[,-c(6168)]))
+
+#format for pcadapt
+data_pcadapt_imputed <- read.pcadapt(data_PCa_imputed)
+
+#perform the Pca
+Pca_imputed <-pcadapt(data_pcadapt_imputed,K=10,method = "mahalanobis")
+
+#
+plot(Pca_imputed$singular.values, type="b")
+
+
+score_Pca_imputed <- data.frame(Pca_imputed$scores[,1:3],row.names(gen_data_imputed));colnames(score_Pca_imputed) <- c("PC1","PC2","PC3","VCF_ID")
+
+PCa_df_imputed <- merge(score_Pca_imputed, meta_data_vcf_427,"VCF_ID")
+
+ggplot_representation <- ggplot()+
+  geom_point(data=PCa_df_imputed, aes( PC1, PC2, size = gen_data_imputed$na_percentage, color= PCa_df_imputed$Country)) +
+  scale_colour_manual(name="Main gene pool",
+                      values = c("orangered3","gold2","darkorchid3","navyblue","turquoise2","green3","blue","red","black","gray","orange","darkgreen"))
+  
+  ggplot_representation
+
+```
+
+# Ancestry coefficients
+
+Here we are going to use the LEA package to estimate the ancestry of the individuals. We are going to produce a map of the points and for each of them we will have a pie with his ancestry coefficients. 
+First, to use the LEA package, we need to transform the genetic dataset into the geno format (SNPs in rows, individuals in columns and 0,1,2, 9(for Nas)). 
+
+```{r SNMF admixture}
+###non imputed data
+
+#we need to put the snp in columns and individuals in rows and put the snp in numeric
+data_PCa_non_imputed_numeric <- data.frame(t(apply(data_PCa_non_imputed, 2, as.numeric)))
+
+#we write the geno file 
+write.geno(data_PCa_non_imputed_numeric,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_non_imputed_numeric.geno")
+
+#we load the geno file to cjheck if everything is ok
+geno_non_imputed_visu <- data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_non_imputed_numeric.geno"))
+View(geno_non_imputed_visu)
+
+#we run the admixture analysis
+project_non_imputed <- snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_non_imputed_numeric.geno",K=1:10,entropy=T,repetitions=10,project="new")
+
+#plot the results
+best = which.min(cross.entropy(project_non_imputed, K = 2))
+my.colors <- c("tomato", "lightblue",
+"olivedrab", "gold")
+barchart(project_non_imputed, K = 2, run = best,
+border = NA, space = 0,
+col = my.colors,
+xlab = "Individuals",
+ylab = "Ancestry proportions",
+main = "Ancestry matrix") -> bp
+axis(1, at = 1:length(bp$order),
+labels = bp$order, las=1,
+cex.axis = .4)
+
+#we can also output a matrix of the ancestry coeff for each individuals
+qmatrix = LEA::Q(project_non_imputed, K = 2)
+qmatrix_ID=data.frame(row.names(gen_data_non_imputed),qmatrix);colnames(qmatrix_ID)=c("VCF_ID","Group1","Group2","Group3","Group4")
+
+
+###imputed data
+#we need to put the snp in columns and individuals in rows and put the snp in numeric
+data_PCa_imputed_numeric <- data.frame(t(apply(data_PCa_imputed, 2, as.numeric)))
+
+#we write the geno file 
+write.geno(data_PCa_imputed_numeric,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno")
+
+#we load the geno file to cjheck if everything is ok
+geno_imputed_visu <- data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno"))
+View(geno_imputed_visu)
+
+#we run the admixture analysis
+project_imputed <- snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno",K=1:10,entropy=T,repetitions=10,project="new")
+
+#plot the results
+best = which.min(cross.entropy(project_imputed, K = 2))
+my.colors <- c("tomato", "lightblue",
+"olivedrab", "gold")
+barchart(project_imputed, K = 2, run = best,
+border = NA, space = 0,
+col = my.colors,
+xlab = "Individuals",
+ylab = "Ancestry proportions",
+main = "Ancestry matrix") -> bp
+axis(1, at = 1:length(bp$order),
+labels = bp$order, las=1,
+cex.axis = .4)
+
+#we can also output a matrix of the ancestry coeff for each individuals
+qmatrix = LEA::Q(project_imputed, K = 2)
+qmatrix_ID=data.frame(row.names(gen_data_non_imputed),qmatrix);colnames(qmatrix_ID)=c("VCF_ID","Group1","Group2","Group3","Group4")
+
+```
+
+
+
+```{r LEA genetic structure}
+#replace the Na per 0 
+data_geno_non <- data_PCa_non[-c(6168),]
+data_PCa_geno_non <- data.frame(replace(data_geno_non, is.na(data_geno_non),9))
+#write the file in geno format: 
+write.lfmm(data_PCa_geno,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9
+LEA::write.geno(data_PCa_geno,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno")
+
+
+library(adegenet)
+test_geno <- df2genind(data_PCa_geno,ploidy=2,ncode=1)
+
+
+
+
+#perform the ancestry calculation
+project_4 = NULL
+project_4 <- LEA::snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno",K=1:10,entropy=T,repetitions=1,project="new")
+plot(project_4, col = "blue", pch = 19, cex = 1.2)
+
+
+LEA::lfmm2geno(input.file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.lfmm",output.file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.geno",force=T)
+
+
+h=data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno"))
+
+h=data.frame(read.lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.lfmm"))
+
+
+
+vcf2geno(input.file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_adapcon_gentree.vcf", output.file ="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_test_geno.geno", force = TRUE)
+
+
+
+
+#plot the results
+best = which.min(cross.entropy(project_4, K = 2))
+my.colors <- c("tomato", "lightblue",
+"olivedrab", "gold")
+barchart(project_4, K = 2, run = best,
+border = NA, space = 0,
+col = my.colors,
+xlab = "Individuals",
+ylab = "Ancestry proportions",
+main = "Ancestry matrix") -> bp
+axis(1, at = 1:length(bp$order),
+labels = bp$order, las=1,
+cex.axis = .4)
+
+#we can also output a matrix of the ancestry coeff for each individuals
+qmatrix = LEA::Q(project_4, K = 2)
+qmatrix_ID=data.frame(row.names(gen_data_non_imputed),qmatrix);colnames(qmatrix_ID)=c("VCF_ID","Group1","Group2","Group3","Group4")
+
+
+#The next step will be to create the map. For this, we first need to mean the values at the populations levels, add the coordinates and then plot this on a map.
+
+
+
+
+meta_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
+
+
+mega_meta_data_tot_map <- merge(meta_data_vcf_427,meta_data,"Population")
+
+
+
+data_tot_maps <- merge(mega_meta_data_tot_map[,c("VCF_ID","Country.x","Longitude","Latitude")],qmatrix_ID,"VCF_ID");colnames(data_tot_maps)=c("ID", "Pop","Longitude","Latitude","Group1","Group2","Group3","Group4");data_tot_maps$Longitude=as.numeric(data_tot_maps$Longitude);data_tot_maps$Latitude=as.numeric(data_tot_maps$Latitude)
+
+#Map
+
+# Obtain the blank map of the region
+admin <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Plot the map with scatterpie
+map_pop <- ggplot() + 
+  geom_sf(data = admin, fill = gray(0.92), size = 0) +#background of the map
+  geom_scatterpie(
+    data = data_tot_maps,
+    aes(x = Longitude, y = Latitude),
+    cols = c("Group1", "Group2", "Group3","Group4"), # Adjust columns accordingly
+    size = 0,#size of the bold (=gras)
+    alpha = 1 #transparence
+  ) +
+  coord_sf(xlim = c(-2, 10), ylim = c(42, 48), expand = FALSE) +#extension of the map
+  theme_minimal() +
+  labs(title = "Genetic Structure for each Populations")
+
+print(map_pop)
+
+
+
+```
+
+```{r}
+load(file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_Adapcon_Gentree.Rdata")
+gen_data_non_imputed <- gen_data_filtered_T_adapcon_gentree
+#load metadata
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+meta_data_vcf_427 <- meta_data_vcf[meta_data_vcf$VCF_ID %in% row.names(gen_data_non_imputed),]
+gen_f_pcadapt_non <- data.frame(replace(gen_data_non_imputed, is.na(gen_data_non_imputed),9))#Na into 9 to have a geno format
+View(gen_f_pcadapt_non)
+#If necessary, transpose the dataset
+data_PCa_non <- data.frame(t(gen_f_pcadapt_non))
+View(data_PCa_non)
+#format for pcadapt
+data_pcadapt_non <- read.pcadapt(data_PCa_non[-c(6168),])
+#replace the Na per 0
+data_geno_non <- data_PCa_non[-c(6168),]
+data_PCa_geno_non <- data.frame(t(replace(data_geno_non, is.na(data_geno_non),9)))
+View(data_PCa_geno_non)
+write.geno(data_PCa_geno,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno")
+project_4 <- snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno",K=1:10,entropy=T,repetitions=1,project="new")
+h=data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno_non.geno"))
+View(h)
+```
+
+```{r}
+load(file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_Adapcon_Gentree.Rdata")
+gen_data_non_imputed <- gen_data_filtered_T_adapcon_gentree
+#load metadata
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+meta_data_vcf_427 <- meta_data_vcf[meta_data_vcf$VCF_ID %in% row.names(gen_data_non_imputed),]
+gen_f_pcadapt <- data.frame(replace(gen_data_non_imputed, is.na(gen_data_non_imputed),9))#Na into 9 to have a geno format
+View(gen_f_pcadapt)
+#If necessary, transpose the dataset
+data_PCa <- data.frame(t(gen_f_pcadapt))
+View(data_PCa)
+#format for pcadapt
+data_pcadapt <- read.pcadapt(data_PCa[-c(6168),])
+#replace the Na per 0
+data_geno <- data_PCa[-c(6168),]
+data_PCa_geno <- data.frame(replace(data_geno, is.na(data_geno),9))
+View(data_PCa_geno)
+write.geno(data_PCa_geno,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.geno")
+project_4 <- snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.geno",K=1:10,entropy=T,repetitions=1,project="new")
+h=data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_geno.geno"))
+View(h)
+```
+
+```{r}
+load(file = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_inputed_T_Adapcon_Gentree.Rdata")
+gen_data_imputed <- vcf_filtered_inputed_T_Adapcon_Gentree
+#load metadata
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+meta_data_vcf_427 <- meta_data_vcf[meta_data_vcf$VCF_ID %in% row.names(gen_data_imputed),]
+gen_f_pcadapt <- data.frame(replace(gen_data_imputed, is.na(gen_data_imputed),9))#Na into 9 to have a geno format
+View(gen_f_pcadapt)
+#If necessary, transpose the dataset
+data_PCa <- data.frame(t(gen_f_pcadapt))
+View(data_PCa)
+#format for pcadapt
+data_pcadapt <- read.pcadapt(data_PCa[-c(6168),])
+#replace the Na per 0
+data_geno <- data_PCa[-c(6168),]
+data_PCa_imputed_numeric <- data.frame(t(apply(data_PCa_imputed, 2, as.numeric)))
+
+
+View(data_PCa_geno)
+write.geno(data_PCa_imputed_numeric,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno")
+project_4 <- snmf("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno",K=1:2,entropy=T,repetitions=1,project="new")
+h=data.frame(read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/data_PCa_imputed_numeric.geno"))
+View(h)
+```
+
+```{r}
+data("tutorial")
+write.geno(tutorial.R, "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/genotypes.geno")
+dd=read.geno("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/genotypes.geno")
+```
+
