@@ -1,0 +1,180 @@
+---
+title: "Genetic_filtering_T_Adapcon_Gentree"
+author: "Thomas Francisco"
+date: "2024-02-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = FALSE)
+
+library(vcfR)
+library(reshape2)
+library(ggplot2)
+library(SNPfiltR)
+library(RColorBrewer)
+```
+
+```{r data}
+vcf <- read.vcfR("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/taxus_GENTREE_ADAPCON_WO_OUTGROUP.vcf", verbose = FALSE )
+```
+
+```{r visualisation and filters step by step}
+
+#number of minimal reads and genotype quality (GQ)
+hard_filter(vcf)
+
+min_dp= 7
+GQ= 50
+  
+vcfR.depth <-hard_filter(vcf, depth= min_dp, gq=GQ)
+hard_filter(vcfR.depth)
+#number of maximal reads
+max_depth(vcfR.depth)
+
+max_dp= 250
+  
+vcfR.maxdepth <- max_depth(vcfR.depth, maxdepth = max_dp)
+
+#Mac
+min_mac(vcfR.maxdepth)#ici logique c'est juste pour chaque snp pas par individus!
+##ici gros effectifs car c'est pour chaque snp pour chaque individus donc 49000*317
+
+
+q <- data.frame(maf(vcfR.depth))
+
+threshold <- 0.05
+df_maf5 <- q %>% 
+  data.frame() %>% 
+  filter(q$Frequency >= threshold)
+
+library(dplyr)
+min_mac(vcfR.maxdepth)
+#we could take 49 as mac because we have 491 diploid individuals so if we want a maf of 5%, we took a mac equal to 5% of 491*2
+mac= 49
+#but we could also said that we take the mac equal to the lower 2 times the lower number of individuals so if all individuals are homozygote for this loci in a population we should consider it.
+#here the smallest pop has 10 so a mac equal to 2*10
+mac= 20
+  
+vcfR.mac<-min_mac(vcfR.het, min.mac = mac)
+
+#heterozygous
+filter_allele_balance(vcfR.maxdepth)
+
+Allele_balance_min= .2
+Allele_balance_max= .8
+  
+vcfR.het<-filter_allele_balance(vcfR.maxdepth, min.ratio=Allele_balance_min,max.ratio=Allele_balance_max)
+
+#% of Na per SNP
+missing_by_snp(vcfR.mac)
+
+Na_snp=0.7
+
+vcfR.Nasnp<- missing_by_snp(vcfR.mac,cutoff=Na_snp) # 0.7 = we kept only snp with less than 30% of missing data
+
+#distance between snps
+
+distance_snp=500
+  
+vcfR.thin<-distance_thin(vcf_filter, min.distance = distance_snp)
+
+#% of Na per individual
+missing_by_sample(vcfR.Nasnp)
+
+Na_indiv=0.3
+  
+vcf_filter<-missing_by_sample(vcfR.Nasnp, cutoff = Na_indiv) #0.1 = we kept only individuals with less than 10% of missing data
+
+```
+
+
+```{r filtration all in}
+min_dp= 7
+GQ= 50
+max_dp= 250
+Allele_balance_min= .2
+Allele_balance_max= .8
+mac=20
+Na_snp=0.7
+Na_indiv=0.3
+
+
+vcf_filter <- vcf %>% 
+  hard_filter(depth= min_dp, gq=GQ) %>% #number of minimal reads and genotype quality (GQ)
+  max_depth(maxdepth = max_dp) %>% #number of maximal reads
+  filter_allele_balance(min.ratio=Allele_balance_min,max.ratio=Allele_balance_max) %>% #heterozygous
+  min_mac(min.mac = mac) %>% #Mac
+  missing_by_snp(cutoff=Na_snp) %>% #% of Na per SNP,  0.7 = we kept only snp with less than 30% of missing data
+  missing_by_sample( cutoff = Na_indiv)#% of Na per individual, 0.1 = we kept only individuals with less than 10% of missing data
+```
+
+```{r save}
+#save the new file created based on the raw vcf
+write.vcf(vcf_filter, "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_adapcon_gentree.vcf.gz")
+```
+
+```{r change format of the vcf}
+
+#For GEA
+
+vcf_data <- vcf_filter %>% 
+  extract.gt(element="GT", IDtoRowNames = T, as.numeric=F) %>% t %>% data.frame
+
+#the format is in 0/0, 0/1 and 1/1 so we transform this in allele count
+library(stringr)
+library(dplyr)
+genetic_data_geno <- vcf_data %>% 
+  mutate_all(funs(str_replace(., "0/0", "0"))) %>% 
+  mutate_all(funs(str_replace(., "0/1", "1"))) %>% 
+  mutate_all(funs(str_replace(., "1/1", "2")))
+
+#Inputation 
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+meta_data_vcf$group_imput <- 1 #we created the imputation group -> 1 for all individuals because we want to impute with the median genotype
+
+
+
+#meta_data_vcf_427 <- meta_data_vcf$VCF_ID[meta_data_vcf$VCF_ID]==list_indiv_427
+
+vcf_filtered <- genetic_data_geno %>% tibble::rownames_to_column(var = "VCF_ID")#we put the ID of samples in a column
+list_indiv_427 <- list(vcf_filtered$VCF_ID)
+meta_data_vcf_427 <- meta_data_vcf[meta_data_vcf$VCF_ID %in% vcf_filtered$VCF_ID,] #keep only the individuals keep after filtering
+# Group by cluster_names
+gen_grouped <- vcf_filtered %>%
+dplyr::group_by(meta_data_vcf_427$group_imput)
+#we need to specify that SNPs are numeric
+gen_grouped_num <- data.frame(gen_grouped[,c("VCF_ID","meta_data_vcf_427$group_imput")],apply(gen_grouped[,c(2:6168)], 2, as.numeric))
+#we created a function to calculate the most common genotype
+mostC_geno <- function(x) {
+names(which.max(table(x)))
+}
+#we calculated the most common genotype for each SNPs
+most_common <- gen_grouped_num %>%
+summarise(across(-VCF_ID, ~mostC_geno(.)))
+# replace missing values for each snp with the most common geno for that snp
+gen_imp <- gen_grouped_num %>%
+group_by(meta_data_vcf_427$group_imput) %>%
+mutate(across(-VCF_ID, ~ifelse(is.na(.), most_common[[as.character(cur_column())]], .))) %>% 
+ungroup()
+# Convert ID column back to row names
+rownames(gen_imp) <- gen_imp$VCF_ID
+vcf_filtered_inputed <- gen_imp[,-c(1,2)] # remove ID column from data frame
+rownames(vcf_filtered_inputed) <- gen_imp$VCF_ID
+# Check the proportion of missing data before and after imputation
+prop.table(table(is.na(vcf_filtered)))
+prop.table(table(is.na(vcf_filtered_inputed)))
+
+
+#add NA percentage
+na_percentage_indiv <- rowMeans(is.na(gen_grouped_num[,-c(1,2)])) * 100
+vcf_filtered_inputed_T_Adapcon_Gentree <- data.frame(gen_imp[,-c(1,2,6170)]);vcf_filtered_inputed_T_Adapcon_Gentree$na_percentage <- na_percentage_indiv;rownames(vcf_filtered_inputed_T_Adapcon_Gentree) <- gen_grouped_num$VCF_ID
+#save the dataframes to load it in further scripts to avoid going through this script every time
+save(vcf_filtered_inputed_T_Adapcon_Gentree,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_inputed_T_Adapcon_Gentree.Rdata")
+# Bind the new column to the original data frame non inputed
+gen_data_filtered_T_adapcon_gentree <- data.frame(gen_grouped_num[,-c(1,2)])
+gen_data_filtered_T_adapcon_gentree$na_percentage <- na_percentage_indiv;rownames(gen_data_filtered_T_adapcon_gentree) <- gen_grouped_num$VCF_ID
+#save the genetic datawithout inputation
+save(gen_data_filtered_T_adapcon_gentree,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic/vcf_filtered_non_imputed_T_Adapcon_Gentree.Rdata")
+
+```
