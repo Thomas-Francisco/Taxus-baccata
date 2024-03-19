@@ -1,0 +1,95 @@
+---
+title: "DBMEM"
+author: "Thomas Francisco"
+date: "2024-03-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(adespatial)
+library(geodist)
+library(writexl)
+```
+For variance partitioning, we will try to disentangle the genetic variation explained by the population structure, the environmental (IBE) and the geography (IBD). 
+This script will work on IBD and will try to produce an accurate proxy of geographical differences between populations. 
+Indeed, to estimate geographical differences, we can use the geographic coordinates but we can also use more complex index like a matrix of geographical correlation along the study area between pop such as the Distance Based Eigenvector Maps (dbMEM). Indeed, dbMEM will improve the patterns of spatial autocorrelation by finding more autocorrelation patterns and can be able to disentangle large and fine autocorrelation scales.
+
+dbMEM can be used in two different ways: - estimate the autocorrelation of a variable (ex: temperature) based on the geographical distances between sampled points
+                                         - autocorrelation of the sampled points directly without using the explained variables. 
+                                         
+ -> we will used the dbMEM for the second point. 
+ 
+ To perform the dbMEM, there is 2 steps: 
+  1. calculate a matrix of distance between populations 
+  2. perform the dbMEM
+  
+  
+
+```{r initial data}
+meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
+
+#data frame with only the coordinates
+coord_data <- meta_data_pop[,c(4:5)] %>% 
+  apply(2,as.numeric) %>% 
+  data.frame()
+row.names(coord_data) <-  meta_data_pop$Population
+```
+
+1. distance matrix
+
+Our input variables of the distance matrix are coordinates, we can calculate 2 types of distance matrix: 
+euclidean: distance between two points in a 2 dimensions
+geodesic: distance between two points in a 3 dimensions -> take into account the curvature of the earth
+We used the geodesic distance because it's more accurate. 
+
+```{r geodesic distance}
+
+distance_matrice <- geodist(coord_data, measure= "geodesic")
+
+```
+
+2. dbMEM
+Then, we performed 
+```{r dbMEM function}
+dbmem_results <- dbmem(distance_matrice, MEM.autocor = "positive")
+variogmultiv(dbmem_results,dbmen_data )
+
+plot(q)
+plot(dbmem_results[,3])
+
+
+library(ggplot2)
+# Plot spatial map for each eigenvector
+plots <- lapply(1:ncol(dbmem_results), function(i) {
+  ggplot() +
+    geom_point(data = meta_data_pop, aes(x = Longitude, y = Latitude, color = dbmem_results[, i])) +
+    scale_color_gradientn(colours = c("black", "grey", "red"), values = scales::rescale(c(-2, 0, 3))) +
+    labs(title = paste("Eigenvector", i)) +
+    theme_minimal()
+})
+
+# Print the plots
+plots
+
+```
+interpretation: 
+DBMEM1: longitudinal gradient
+DBMEM2: extreme latitudes are in the same group and intermediate latitude in another group
+DBMEM3 and 4: less clear
+
+
+Save DBMEMs in a meta file
+
+```{r add DBMEMs to metadata}
+#final dataset
+meta_data_dbmem_29pop_adapcon_gentree <- data.frame(meta_data_pop,dbmem_results)
+
+#exportation
+write_xlsx(meta_data_dbmem_29pop_adapcon_gentree,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/meta_data_dbmem_29pop_adapcon_gentree.xlsx" )
+
+```
+
+
+
+
