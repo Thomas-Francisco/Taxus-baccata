@@ -1,0 +1,375 @@
+---
+title: "fast_processing_climatic_data"
+author: "Thomas Francisco"
+date: "2024-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = FALSE)
+library(dplyr) 
+library(tidyverse)
+library(ggplot2)
+library(corrplot)  
+library(dismo)
+library(writexl) 
+```
+
+```{r data}
+#metadata
+meta_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
+#past climatic data
+load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/comp_past_climatic_data_1901_1950.Rdata")
+```
+
+
+**3. Selection of climatic variables**
+    
+Selection of climatic variables will be in 2/3 steps: 
+
+      i. Difference between past and future values
+      
+      
+#################################
+#           A faire             #
+#################################
+
+
+
+
+We look at the difference between past and future values to see if changes will happen in the future for the climatic variables. 
+Indeed, if the values won't change, it's not useful to take them into account because it will not affects the populations into the future.
+(We could also think that if the climatic values for a specific climatic variables is quit homogeneous along the area of the species, it's not relevant because we might not expect difference in adaptation for this specific variable among populations.)
+
+To investigate whether the values will change, we created a function: *relative_difference_climate* that is creating a new table with the difference between future and present for each specific coordinates populations for each climatic variables(e.g: (tmx08 future - tmx08 present)/tmx08present)
+
+
+
+To do so, we first need to process the future climatic data the same way we did for the past data
+
+```{r function to calculate and compute all the climatic variables that we want in one table}
+computation_climatic_variables <- function(data,selected_bio,selected_calculated,mean,bio,from_variable,to_variable,ID){
+
+if(mean==F){##Meaning that the function need to average the tmx, tmn and prec values over the period -> layer data
+  
+  #create a table with only the climatic variables of interest
+  climatic_data_filtered <- data.frame(data) %>% 
+    mutate(across(from_variable:to_variable, as.numeric))#pass the variables in numeric
+#do the mean of each year of data for each climatic variables and that's for each ID (pop)
+  climatic_data_filtered_mean <- climatic_data_filtered %>% 
+   group_by(ID) %>% 
+  summarize(across((from_variable-1):(to_variable-1), ~ mean(.))) ##-1 because, ID is no longer a columns but a column names so it does not count it as a column
+  #we need to extract the ID, longi and lati from the dataframe with all the rows
+  climatic_data_mean <- climatic_data_filtered %>% 
+    group_by(ID) %>% #groups the row by ID
+    slice_head(n = 1) %>% #keep only the first row of each groups
+    dplyr::select(c(1:3))#select only the 3 first columns
+  #add the longitude and latitude variables
+   Mean_pre_variables <- data.frame(climatic_data_mean[,c(1:3)],climatic_data_filtered_mean[,-1]) #-1 because ID is already in
+
+   data_climatic <- data.frame(Mean_pre_variables) }
+  
+  else{#the average is already did -> raster data
+    data_climatic <- data.frame(data)
+  }
+   
+  #we extracted the prec, tmn and tmx from the inpute data
+prec <- data.frame(t(data_climatic %>% dplyr::select(starts_with("prc"))))
+tmn <- data.frame(t(data_climatic %>% dplyr::select(starts_with("tmn"))))
+tmx <- data.frame(t(data_climatic %>% dplyr::select(starts_with("tmx"))))
+  
+
+#we calculated the average temperature for each month over the period, we will use it to calculated the mean summer_temp
+tavg <- (data_climatic %>% dplyr::select(contains("tmn")) + data_climatic %>% dplyr::select(contains("tmx")))  / 2
+   
+
+if(bio==F){#Meaning that the bioclimatic variables are not in the input data and the function needs to calculate them -> layer dataset
+  ##bio calculation
+Bio_data <- data.frame(biovars(prec,tmn,tmx))
+
+##we also calculate the AHM here because if bio are calculated then AHM will also be
+
+#AHM calculation
+AHM <- data.frame((Bio_data$bio1+10)/(Bio_data$bio12/1000)) #the more we are close to 0 the less it's arid, the more we are far from 0 the more it's arid
+  
+}
+
+##########other indexes calculated regardless of the dataset (raster or layer)
+
+#mean Temperature june to september
+Mean_summer_temp <- data.frame(tavg$tmn06+tavg$tmn07+tavg$tmn08+tavg$tmn09)/4
+#min temperature winter
+tmn_cal <- data.frame(t(tmn))
+Min_winter_temp <- data.frame(tmn_cal$tmn11+tmn_cal$tmn12+tmn_cal$tmn01+tmn_cal$tmn02)/4
+#summer precipitation
+prec_cal <- data.frame(t(prec))
+Mean_summer_prec <- data.frame(prec_cal$prc06+prec_cal$prc07+prec_cal$prc08+prec_cal$prc09)/4
+#Feb_spring/summer precipitation
+Mean_Feb_spring_summer_prec <- data.frame(prec_cal$prc02+prec_cal$prc03+prec_cal$prc04+prec_cal$prc05+prec_cal$prc06+prec_cal$prc07+prec_cal$prc08+prec_cal$prc09)/8
+
+##final dataset combining all the wanted climatic variables
+
+#AHM is already in the input file of raster so we separate the final dataset whether the input file is coming from layer or raster 
+
+if(bio==F){ #layer
+  
+  #we created a data frame with all the calculated variables (except the bio), then we can also choose which one we want to have in the final dataset
+data_calculated_var <- data.frame(Mean_summer_temp,Min_winter_temp,Mean_Feb_spring_summer_prec,Mean_summer_prec,AHM);colnames(data_calculated_var)=c("MeanT_summer","MinT_winter","MeanP_spring_summer","MeanP_summer","AHM")
+
+#final dataset
+  climatic_data <- data.frame(cbind(Mean_pre_variables[,c("ID")],Bio_data[,selected_bio],data_calculated_var[,selected_calculated]));colnames(climatic_data)=c("Population",selected_bio,selected_calculated)
+  }
+
+else{ #raster
+  
+  #we created a data frame with all the calculated variables (except the bio), then we can also choose which one we want to have in the final dataset
+data_calculated_var <- data.frame(Mean_summer_temp,Min_winter_temp,Mean_Feb_spring_summer_prec,Mean_summer_prec);colnames(data_calculated_var)=c("MeanT_summer","MinT_winter","MeanP_spring_summer","MeanP_summer")
+
+  climatic_data <- data.frame(cbind(data[,c("Population")],data[,selected_bio],data_calculated_var[,selected_calculated]));colnames(climatic_data)=c("Population",selected_bio,selected_calculated)
+  
+}
+
+return(climatic_data) }
+```
+
+```{r processing future climatic data}
+#load future climatic data
+##period 2040_2070
+Pre_future_climatic_data_point <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/Test_script/pre_future_climatic_data.csv",h=T,sep=";",dec=",")
+
+##Calculate the climatic variables
+
+data_future <- Pre_future_climatic_data_point #input file
+ID_future <- Pre_future_climatic_data_point$ID#id to calculate the average
+from_variable <- 6 #position in the input file of the prec,tmn and tmx variables
+to_variable <- 41  #position in the input file of the prec,tmn and tmx variables
+selected_bio_future <- c("bio1","bio2","bio4","bio7","bio12","bio15")#all the variables that have been calculated by the function as bio and need to be in the output file
+selected_calculated_future <- c("MeanT_summer","MinT_winter","MeanP_spring_summer","MeanP_summer","AHM")#all the variables that are calculated by the function and need to be in the output file
+
+future_climatic_data <- computation_climatic_variables(data_future,selected_bio_future,selected_calculated_future,mean=F,bio=F,6,41,ID_future)
+
+
+#add the country information
+comp_Future_climatic_data_2040_2070 <- merge(meta_data[,c(1:2)],future_climatic_data,"Population")
+colnames(comp_Future_climatic_data_2040_2070)[3:13] <- paste0(colnames(comp_Future_climatic_data_2040_2070)[3:13], "_2041_2070")
+
+##Past period 1901_1950
+# Past period = data.frame: comp_past_climatic_data_1901_1950 
+
+```
+
+
+```{r change in values of variable between present and future, eval=FALSE, include=FALSE}
+
+# Calculate the difference for each climatic variable
+relative_difference_climate <- function(data_present, data_future, from,to,Population,number_retained_factor) {
+  climatic_columns <- names(data_present)[from:to]#select the climatic variables
+  
+  relative_data_difference <- (data_future[, climatic_columns] - data_present[, climatic_columns])/data_present[,climatic_columns] #calculate the difference between future values and current one for each climatic variables
+  colnames(relative_data_difference) <- paste0(colnames(relative_data_difference),"_relative_difference") #add difference in the name of the columns
+  
+  ID_long_lat <- data_present %>% 
+    group_by(Population) %>% #groups the row by ID
+    slice_head(n = 1) %>% #keep only the first row of each groups
+    dplyr::select(number_retained_factor)#select only the 3 first columns
+  
+  #add the ID, longitude and latitude variables
+   data_difference_final <- data.frame(ID_long_lat[,number_retained_factor],relative_data_difference) #-1 because ID is already in
+   
+  return(data_difference_final)
+} 
+ 
+data_present <- comp_past_climatic_data_1901_1950#data with the current/past climatic conditions
+data_future <- comp_Future_climatic_data_2040_2070 #data with the future climatic conditions
+from <- 3 #first columns of climatic data
+to <- 14#last columns of climatic data 
+Population <- comp_past_climatic_data_1901_1950$Country #pop groups 
+number_retained_factor <- c(1,2) 
+relative_data_difference<- relative_difference_climate(data_present,data_future,from,to,Population,number_retained_factor)
+
+```
+
+We compare the difference using Violin graphs.
+To obtain the violin graph I used a manual code (not run nor show) and then created a function name *violin_plot*.
+This graph enables to visualize for each climatic variable the range of difference for each regions.
+If a climatic variable has low change (the distance is near 0), the variables is not changing a lot in the future so we could discard it.
+
+```{r graphic representation climatic difference between future and past, eval=FALSE, include=FALSE}
+
+violin_plot <- function(revelant_variables_graph,ID,regions){#may be interesting to do it by regions and not populations to better vizualise
+data_violin <- gather(revelant_variables_graph,key="revelant_variables",value="Value",-Population,-Country)#create a dataframe for the violin graph with all the values of climatic variables in 1 columns: Value and all the different coordinates for populations for the different variables in row.
+data_violin$Country=as.factor(data_violin$Country)
+
+p <- ggplot(data_violin, aes(x = revelant_variables, y = Value)) +
+  geom_violin(trim = FALSE) +
+  geom_point(aes(color = Country), shape = 16, position = position_jitter(seed = 1, width = 0.2)) +
+  labs(colour="Regions",x="climatic variables",y="Difference between future and past climate",title="Violin Plot of Climatic Factors by Regions")+
+  theme(plot.title = element_text(hjust = 0.5))
+return(p)
+}
+
+
+revelant_variables_graph <- relative_data_difference#selection of ID, populations and the climatic variables
+Groups <- past_climatic_data_1901_1950$Population
+regions <-past_climatic_data_1901_1950$Country
+  
+s=violin_plot(revelant_variables_graph,ID,regions)
+
+#finaly we select only certain data by doing: 
+#present
+data_present_2step <- subset(data_present_1step,select= -c(...))
+  
+#future
+data_future_2step <- subset(data_future_1step,select= -c(...))
+```
+Here we can see that the one population has a important difference between the current and the future values so the plot is kinda messy. 
+We can decide to do the graph separately for each climatic variable. This will also enable to compare the different future prediction from different climatic models (I do not have yet this kind of information)
+
+```{r violin plot in a loop, eval=FALSE, include=FALSE}
+#do the violin plot in a loop for each climatic variables
+
+#input data for the loop
+data <- relative_data_difference
+regions <-relative_data_difference$Country
+colnames(relative_data_difference)=c("Population","Country","bio1","bio2","bio3","bio4","bio5","bio10","bio11","bio12","bio13","bio14","bio15","AHM")
+bioclim_vars <- c("bio1", "bio2", "bio3", "bio4","bio5","bio10","bio11","bio12","bio13","bio14","bio15","AHM")
+
+#results: the loop
+for (var in bioclim_vars) {
+  data_subset <- data.frame(revelant_variables_graph[, paste0(var)]) #for each variable in bioclim_vars, we extract the two periods and created a data.frame with only these two variables. 
+  colnames(data_subset) <- c("var1")
+  # Create scatterplot to compare the bioclimatic variable between the two periods
+  plot <- ggplot(data_subset, aes(x =var,y= var1)) +#var is the values and var1 is just the name of the variable 
+  geom_violin(trim = FALSE) +
+  geom_point(aes(color = regions), shape = 16, position = position_jitter(seed = 1, width = 0.2)) +
+  labs(colour="Regions",x="climatic variables",y=paste0(var,"difference between future and past climate"),title="Violin Plot of Climatic Factors by Regions")+
+  theme(plot.title = element_text(hjust = 0.5))
+  # Print the plot
+  print(plot)
+  # Add any additional customization or saving the plot if needed
+ 
+  ######"
+    #If we want to add values from different climatic models, we need to do a thing like thats: data_violin <- gather(revelant_variables_graph,key="revelant_variables",value="Value",-Population,-Country)#create a dataframe for the violin graph with all the values of climatic variables in 1 columns: Value and all the different coordinates for populations for the different variables in row.
+  #the different values of bio1 for example from different models should be in the same dataframe -> 1 data frame per bioclimatic variables -> maybe we can do a loop for that too. 
+} 
+
+```
+If, we want to add the values for bio1 and other bio from different climatic models, we need to do like in the function violin plot by creating a columns with the nameof the different models and the values in the same columns. 
+
+Interpretation:...
+Conclusion: ...
+
+
+#################################
+#           A faire             #
+#################################
+
+      ii. Imprecision along studied area
+Accuracy of the climatic variables is not homogeneous along the studied area and also along the climatic variables.
+If layers of uncertanty are available, we could check if some variables have a high inaccuracy along the studied area and then discard them. 
+
+
+
+
+
+```{r Imprecision along the studied area}
+
+```
+Interpretation:
+Conclusion:
+
+      iii. Multicollinerity between variables
+The last step to select the variables is to avoid over collinearity between variables.
+To do so, we decided to keep only the variables not too correlated (<absolute corr of 0.7?) from the remaining variables after step 1.
+
+```{r multicollinearity between variables, eval=FALSE, include=FALSE}
+#function to do it
+#matrix of correlation
+correlation_function <-function(data,threshold){
+    data_correlation <- subset(data,select= -c(Population,Country)) 
+      rownames(data_correlation) <- data$Populations
+      correlation <- cor(data_correlation)
+  correlation[abs(correlation) <= threshold] <- 0
+corr_plot <- corrplot(correlation, method = "number", addrect = 2, col = c("red", "white", "red"), type = "lower", tl.col = "black", tl.cex = 0.6, number.cex = 0.6)
+}
+
+
+
+#correlation past/present
+##0.6
+data_present <- comp_past_climatic_data_1901_1950 #we use the dataset without the variables we discarded previously
+threshold <- 0.60
+correlation_past <-correlation_function(data_present,threshold)
+
+##0.75
+threshold <- 0.75
+correlation_past <-correlation_function(data_present,threshold)
+
+#correlation future
+data_future <- data_future_2step
+threshold <- 0.75
+correlation_fut <-correlation_function(data_future,threshold)
+
+```
+Interpretation: 
+Conclusion: If we choose to filter variables with correlation above 0.6, we're keeping BIO1, BIO4, BIO12 and BIO15. 
+If we choose to filter variables with correlation above 0.75, we're keeping BIO1, BIO2 BIO4, BIO12 and BIO15. 
+
+```{r retaining variables based on corrplot}
+##0.6 corr
+data_past_climatic_data_0.6 <- comp_past_climatic_data_1901_1950[,c("Population","Country","bio1_1901_1950","bio4_1901_1950","bio12_1901_1950","bio15_1901_1950")] #add the GDD5
+
+#0.75 corr
+data_past_climatic_data_0.75 <- comp_past_climatic_data_1901_1950[,c("Population","Country","bio1_1901_1950","bio2_1901_1950","bio4_1901_1950","bio12_1901_1950","bio15_1901_1950")]
+
+
+data_future_climatic_data_2040_2070 <- comp_Future_climatic_data_2040_2070[,c()]
+```
+
+ **6. Standardization of the retained climatic values**
+
+The final step is to create a data frame with the retained climatic variables standardized for further analysis. 
+We standardized the past and future data with the same values to enable comparison of index between past and future based on the climatic data (e.g Adaptive index, genomic offset...)
+
+```{r normalize the data, message=FALSE, warning=FALSE}
+#creation of the scaled matrix
+
+###For 0.6 corr
+
+
+##scale the selected variables 
+  Past_Climatic_data_scale_0.6cor <- data_past_climatic_data_0.6 %>% 
+    mutate(across(where(is.numeric), scale))
+#rename columns
+colnames(Past_Climatic_data_scale_0.6cor) <- c("Population","Country","Annual_T°C","T°C_Seasonality","Annual_P°","P°_Seasonality")
+
+  #we kept the values of scaling and centering for each variables to normalize the future values by the same values
+  scale_env_value_0.6cor <- attr(scale(data_past_climatic_data_0.6[,-c(1,2)]), 'scaled:scale')
+center_env_value_0.6cor <- attr(scale(data_past_climatic_data_0.6[,-c(1,2)]), 'scaled:center') 
+
+#Save the matrix and the normalized values
+
+write_xlsx(Past_Climatic_data_scale_0.6cor,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.6/Past_Climatic_data_scale_0.6cor.xlsx")
+save(Past_Climatic_data_scale_0.6cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.6/Past_Climatic_data_scale_0.6cor.Rdata")
+save(scale_env_value_0.6cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.6/scale_env_value_0.6cor.Rdata",force=T)
+save(center_env_value_0.6cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.6/center_env_value_0.6cor.Rdata",force=T)
+
+
+###For 0.75 corr
+Past_Climatic_data_scale_0.75cor <- data_past_climatic_data_0.75 %>% 
+    mutate(across(where(is.numeric), scale))
+
+colnames(Past_Climatic_data_scale_0.6cor) <- c("Population","Country","Annual_T°C","T°C_Seasonality","Annual_P°","P°_Seasonality")
+
+
+  scale_env_value_0.75cor <- attr(scale(data_past_climatic_data_0.75[,-c(1,2)]), 'scaled:scale')
+center_env_value_0.75cor <- attr(scale(data_past_climatic_data_0.75[,-c(1,2)]), 'scaled:center') 
+
+#Save the matrix and the normalized values
+
+write_xlsx(Past_Climatic_data_scale_0.75cor,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/Past_Climatic_data_scale_0.75cor.xlsx")
+save(Past_Climatic_data_scale_0.75cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/Past_Climatic_data_scale_0.75cor.Rdata")
+save(scale_env_value_0.75cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/scale_env_value_0.75cor.Rdata",force=T)
+save(center_env_value_0.75cor,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/center_env_value_0.75cor.Rdata",force=T)
+
+```
