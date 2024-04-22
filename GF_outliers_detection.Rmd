@@ -1,0 +1,619 @@
+---
+title: "GF_outliers_detection"
+author: "Thomas Francisco"
+date: "2024-04-08"
+output: html_document
+---
+
+
+
+This script will perform the outlier detection using gradient forest.
+
+Gradient forest is a machine learning methods introduce by Ellis, Smith and Pitcher, 2012. Fitzpatrick & Keller (2015) described how GF can be used to (1) analyze and map spatial variation in allele frequencies as a function of environmental gradients and (outliers detection and GEA) (2) project patterns of genomic variation under future climate (genomic offset).
+More precisely, "GF uses Random Forest to fit an ensemble of regression trees to model change in allele frequencies across sites and derive monotonic, nonlinear functions of environmental predictors. The empirical, nonlinear turnover functions are constructed by distributing the R 2 values from all SNPs among the predictor gradients in proportion to their accuracy importance and along each gradient according to the density of the raw split importance values. The split importance values for all modeled SNPs also are aggregated to an overall, genome-wide turnover function for each variable using weightings based on predictor importance and the goodness-of-fit for each SNP model" Fitzpatrick et al. (2021).
+GF is a multivariate methods because it can handle multiple cliamtic variable at the same times but only one SNP per SNP.(RDA is also a multivariate methods because of that and also it can handle several reponse variables at the same time -> unique method that does that, LFMM can be univariate for both or same as GF)
+
+In this script, we will use the GF algorithm for outlier detection following Fitzpatrick et al. (2021) and Archambeau et al. (2024).
+We will perform the GF on a genomic dataset corrected and non-corrected for population structure. 
+
+There are 4 steps to perform the outlier detection with GF:
+
+    1. Formatting the genomic and the climatic data
+    2. Run GF
+    3. Calculating the empirical pvalues by comparing R^2 values of all snp with the distribution of R^2 values of a random set of SNPs (if it can be neutral outliers from intergenic regions or maybe SNPs in non coding regions identified by genetic load? it would be better). 
+    4. Selecting a threshold to identify outliers (take top 0.5% or 1%)
+    5. Results of the 5 runs
+    
+    
+We will perform the last 3 steps 3 to 5 times for each dataset and select as outliers for each dataset the outliers overlapping between the 3 or 5 runs because between runs the identified outliers could change slightly (Archambeau et al. 2024). 
+
+```{r setup, include=FALSE}
+rm(list = ls())
+knitr::opts_chunk$set(cache = FALSE)
+#download gradientforest package
+#install.packages("gradientForest", repos=c("http://R-Forge.R-project.org",
+#"http://cran.at.r-project.org"),dependencies=TRUE)
+library(gradientForest)
+library(dplyr)
+library(tidyr)
+```
+
+#####################################################       GF non corrected for population structure      ##############################################
+
+    1. Formatting the genomic and the climatic data
+
+The format to perform the gradient forest (GF) according to Fitzpatrick et al. (2021) is to arrange populations in rows and single nucleotide polymorphisms (SNPs) in columns. It's important that the order of populations is consistent between the genomic data file and the climatic data file.
+
+The genomic file is loaded with a minimum allele frequency (MAF) cutoff of 20, as low MAF alleles could potentially impact the genomic environmental association (GEA).
+
+
+
+```{r formatting data}
+#genomic data
+load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/data_allelic_frequencies_29pop_adapcon_gentree_475_8616.Rdata")
+
+genomic_matrix <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616
+#climatic data
+Past_climatic <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/Past_Climatic_data_scale_0.75cor.csv",sep=";",dec=",")
+vars <- colnames(Past_climatic[,-c(1:2)])
+
+```
+
+
+
+    2. Run GF
+
+```{r function to perform GF}
+
+#####function adapted from Fitzpatrick et al. 2021
+
+
+runGF <- function(alFreq,  envTab, vars, ntree, 
+                  cores, indLoci){
+  
+  ### CHECK THE FORMATTING OF THE EXAMPLE DATA & MAKE SURE YOUR DATA
+  ### TABLES ARE THE SAME (OR EDIT CODE TO MATCH YOUR FORMATTING)
+  
+  # freqFilePath = path to allele freq. file
+  # envTab = table of env data, with a row for each population
+  # vars = vector of variable names to be used in gf modeling
+  # ntree = the number of trees to fit using GF
+  # rmRare = remove rare alleles?
+  # SNPs = run all SNPs or subset (for subset, provide vector of SNP IDs)?
+  # cores = # number of processors to use
+  # indLoci = run loci individually or all in the same model?
+  # nRand = number of random SNPs to model if nRand > 0
+  
+  require(data.table)
+  require(gradientForest)
+  require(parallel)
+  require(foreach)
+  require(doParallel)
+  library(doParallel)
+  library(foreach)
+  library(parallel)
+  library(gradientForest)
+  library(data.table)
+  
+  if(identical(envTab$Population,rownames(alFreq))==F){
+    stop("Populations are not in the same order in the genomic and climatic tables.")
+  }
+  
+  # create custom object to hold output 
+  gfOutObj <- setClass("gfOutObj", slots = c(alFreq="data.frame", imp="list"))
+
+  # run in parallel if fitting SNPs individually
+  if(indLoci==T & !is.na(cores)){
+    # fit gf model to each SNP individually
+    cl <- makeCluster(cores, setup_strategy = "sequential")
+    registerDoParallel(cl)
+    
+
+    
+    gfMods <- foreach(k=1:ncol(alFreq), .verbose=F, .packages=c("gradientForest"), .errorhandling = c("pass")) %dopar%{
+      locus <- data.frame(alFreq[,k])
+      names(locus) <- colnames(alFreq)[k]
+      gf.mod <- gradientForest(data.frame(envTab[, vars], locus), 
+                               predictor.vars=vars, response.vars=colnames(alFreq)[k], 
+                               corr.threshold=0.5, ntree=ntree, trace=T)
+
+    
+    
+    if(!is.null(gf.mod)){
+        imps <- importance(gf.mod)
+        imps <- imps[order(names(imps))]
+        data.frame(imps, SNP = colnames(alFreq)[k])
+      }
+    }
+    
+    stopCluster(cl)
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  } else {
+    # run all SNPs at once if not fitting individually
+    gf.mod <- gradientForest(data.frame(envTab[, vars], alFreq), 
+                             predictor.vars=vars, response.vars=colnames(alFreq), 
+                             corr.threshold=0.5, ntree=ntree, trace=T)
+    
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  }
+}
+
+
+
+###############RUN GF#############
+
+
+GF_test <- runGF(genomic_matrix,Past_climatic,vars,ntree=500, 
+                  cores=4, indLoci=T)
+```
+
+
+    3. Calculating the empirical pvalues by comparing R² values of all snp by distribution of R² values of a random set of SNP
+
+First, we need to save the results from run_GF and keeping only the loci that are correlated to climatic variables.
+
+```{r extract the loci correlated with climatic variables}
+
+Extract_correlation_loci_climate<- GF_test@imp
+
+loci_correlated_climate <- Filter(function(x) !inherits(x, "error"),  Extract_correlation_loci_climate)
+```
+The next step is to extract the R^2 of each locus for each climatic variables. We use an adapted version of the Fitzpatrick et al 2021 script. 
+
+```{r extracting the R^2 values}
+
+gfR2tab <- function(gfMods.list){
+  gfMods.list <- gfMods.list
+  i=1
+  while(is.null(gfMods.list[[i]])){i=i+1}
+  tab <- do.call(rbind, gfMods.list)
+  vrNm <- rep(row.names(tab)[1:nrow(gfMods.list[[i]])], 
+              nrow(tab)/nrow(gfMods.list[[i]]))
+  tab <- data.frame(variable=vrNm, tab)
+  tab <- reshape2::dcast(tab, SNP~variable, value.var="imps")
+  totalR2 <- rowSums(tab[,-1])
+  return(data.frame(tab, totalR2=totalR2))}
+
+
+dataset_R2_loci_climate <- gfR2tab(loci_correlated_climate)
+```
+
+The final step is to evaluate for each locus their association with climatic variables.
+To evaluate this, we will compute empirical pvalues. These pvalues are calcualted by comparing a nulle distribution of R2 with the R2 values of each locus and the more the R^2 values is away from the distribution, the more the pvalues is low.
+To compute these pvalues, the first step is to select the SNP set that will be used to compute the null distribution.
+If SNPs in intergenic regions or maybe SNPs in non coding regions identified by genetic load are available that is much better.
+Unfortunately, here we do not have such SNPs, so I will use like Archambeau et al. 2024 and use a random subset of SNP from the dataset to create the null distribution.
+
+```{r random SNP for null distribution}
+#select randomly the SNPs, we selected 20% of all SNPs to create the null distribution
+name_neutral_snps <- sample(dataset_R2_loci_climate$SNP,600,replace = F)
+
+neutral_snps_set <- dataset_R2_loci_climate %>% 
+    filter(SNP %in% name_neutral_snps)
+```
+
+```{r represent the null distribution}
+
+hist(neutral_snps_set$totalR2)
+```
+
+Then, we calculated the empirical pvalues
+
+```{r empirical pvalues}
+empirical_pvalues <- sapply(1:nrow(dataset_R2_loci_climate), function(x, dataset_R2_loci_climate, name_neutral_snps, neutral_snps_set){
+    snps2Rank <- rbind(dataset_R2_loci_climate[x,], neutral_snps_set) %>% 
+      distinct() %>% 
+      dplyr::select(-SNP)
+    P <- apply(snps2Rank, 2, function(y){
+      rankSNP <- frank(y)
+      return(1-rankSNP[1]/length(rankSNP))
+    })}, dataset_R2_loci_climate, neutral_snps, neutral_snps_set)
+  
+
+  # format output as data.frame
+  empirical_pvalues_df <- t(empirical_pvalues)
+  colnames(empirical_pvalues_df) <- paste("pval_", colnames(empirical_pvalues_df), sep="")
+  empirical_pvalues_df <- data.frame(dataset_R2_loci_climate, empirical_pvalues_df)
+  
+  
+  #visualise the pvalues distribution
+  hist(empirical_pvalues_df$pval_totalR2)
+```
+
+
+    4. Selecting a threshold to identified outliers (take top 0.5% or 1%)
+The last step is choosing a threshold to identify the outliers.
+We can take the pvalues < 0.05 or 0.001 but we can also just as in RDA, select the top 1% of the SNPs
+
+```{r selection of outliers threshold}
+
+# Thresholds based on the p-values
+#pvalues < 0.05
+outliers_pv05 <- empirical_pvalues_df %>% filter(pval_totalR2<0.05) %>% pull(SNP) 
+
+#pvalues < 0.001
+outliers_pv0.001 <- empirical_pvalues_df %>% filter(pval_totalR2<0.01) %>% pull(SNP)
+
+#top 1%
+ outliers_top1perc_GF <- empirical_pvalues_df %>% 
+  arrange(pval_totalR2) %>%
+slice(1:(86)) %>%  #slice(1:(0.01*nrow(.)))
+  as.data.frame()
+
+```
+
+
+    5. Results of the 5 runs
+    
+In this last step, we will perform the GF 5 times because the outliers can vary form one run to another due to the nature of the analysis (machine learning). Moreover, the random null distribution could randomnly select outliers so in order to take into account that, we will select for each runs the outliers identified by at least 2 of the 5 null distribution.
+
+
+
+```{r function to perform the GF and output the results in 1 code}
+
+
+  
+
+Run_GF_and_select_outliers <- function(genomic_matrix, climatic_data, ntree, cores,nbr_loci_distrib,threshold_snp,vars){
+  
+outliers_list <- list()  # Initialize a list to store outliers
+
+  
+  #GF function
+  runGF <- function(alFreq,  envTab, vars, ntree, 
+                  cores, indLoci){
+  
+  ### CHECK THE FORMATTING OF THE EXAMPLE DATA & MAKE SURE YOUR DATA
+  ### TABLES ARE THE SAME (OR EDIT CODE TO MATCH YOUR FORMATTING)
+  
+  # freqFilePath = path to allele freq. file
+  # envTab = table of env data, with a row for each population
+  # vars = vector of variable names to be used in gf modeling
+  # ntree = the number of trees to fit using GF
+  # rmRare = remove rare alleles?
+  # SNPs = run all SNPs or subset (for subset, provide vector of SNP IDs)?
+  # cores = # number of processors to use
+  # indLoci = run loci individually or all in the same model?
+  # nRand = number of random SNPs to model if nRand > 0
+  
+  require(data.table)
+  require(gradientForest)
+  require(parallel)
+  require(foreach)
+  require(doParallel)
+  library(doParallel)
+  library(foreach)
+  library(parallel)
+  library(gradientForest)
+  library(data.table)
+  
+  if(identical(envTab$Population,rownames(alFreq))==F){
+    stop("Populations are not in the same order in the genomic and climatic tables.")
+  }
+  
+  # create custom object to hold output 
+  gfOutObj <- setClass("gfOutObj", slots = c(alFreq="data.frame", imp="list"))
+
+  # run in parallel if fitting SNPs individually
+  if(indLoci==T & !is.na(cores)){
+    # fit gf model to each SNP individually
+    cl <- makeCluster(cores, setup_strategy = "sequential")
+    registerDoParallel(cl)
+    
+
+    
+    gfMods <- foreach(k=1:ncol(alFreq), .verbose=F, .packages=c("gradientForest"), .errorhandling = c("pass")) %dopar%{
+      locus <- data.frame(alFreq[,k])
+      names(locus) <- colnames(alFreq)[k]
+      gf.mod <- gradientForest(data.frame(envTab[, vars], locus), 
+                               predictor.vars=vars, response.vars=colnames(alFreq)[k], 
+                               corr.threshold=0.5, ntree=ntree, trace=T)
+
+    
+    
+    if(!is.null(gf.mod)){
+        imps <- importance(gf.mod)
+        imps <- imps[order(names(imps))]
+        data.frame(imps, SNP = colnames(alFreq)[k])
+      }
+    }
+    
+    stopCluster(cl)
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  } else {
+    # run all SNPs at once if not fitting individually
+    gf.mod <- gradientForest(data.frame(envTab[, vars], alFreq), 
+                             predictor.vars=vars, response.vars=colnames(alFreq), 
+                             corr.threshold=0.5, ntree=ntree, trace=T)
+    
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  }
+}
+  
+  
+
+  
+  #run GF
+  GF_test <- runGF(genomic_matrix,climatic_data,vars,ntree=ntree, 
+                  cores=cores, indLoci=T)
+  
+  
+  #extract the loci correlated to the climate
+  Extract_correlation_loci_climate<- GF_test@imp
+loci_correlated_climate <- Filter(function(x) !inherits(x, "error"),  Extract_correlation_loci_climate)
+
+#extracting R^2 values
+gfR2tab <- function(gfMods.list){
+  gfMods.list <- gfMods.list
+  i=1
+  while(is.null(gfMods.list[[i]])){i=i+1}
+  tab <- do.call(rbind, gfMods.list)
+  vrNm <- rep(row.names(tab)[1:nrow(gfMods.list[[i]])], 
+              nrow(tab)/nrow(gfMods.list[[i]]))
+  tab <- data.frame(variable=vrNm, tab)
+  tab <- reshape2::dcast(tab, SNP~variable, value.var="imps")
+  totalR2 <- rowSums(tab[,-1])
+  return(data.frame(tab, totalR2=totalR2))}
+
+
+dataset_R2_loci_climate <- gfR2tab(loci_correlated_climate)
+
+#select randomly the SNPs, we selected 20% of all SNPs to create the null distribution
+for(i in 1:5){
+name_neutral_snps <- sample(dataset_R2_loci_climate$SNP,nbr_loci_distrib,replace = F)
+
+neutral_snps_set <- dataset_R2_loci_climate %>% 
+    filter(SNP %in% name_neutral_snps)
+
+#empirical pvalues
+empirical_pvalues <- sapply(1:nrow(dataset_R2_loci_climate), function(x, dataset_R2_loci_climate, name_neutral_snps, neutral_snps_set){
+    snps2Rank <- rbind(dataset_R2_loci_climate[x,], neutral_snps_set) %>% 
+      distinct() %>% 
+      dplyr::select(-SNP)
+    P <- apply(snps2Rank, 2, function(y){
+      rankSNP <- frank(y)
+      return(1-rankSNP[1]/length(rankSNP))
+    })}, dataset_R2_loci_climate, neutral_snps, neutral_snps_set)
+  
+
+  # format output as data.frame
+  empirical_pvalues_df <- t(empirical_pvalues)
+  colnames(empirical_pvalues_df) <- paste("pval_", colnames(empirical_pvalues_df), sep="")
+  empirical_pvalues_df <- data.frame(dataset_R2_loci_climate, empirical_pvalues_df)
+
+  #top 1%
+ outliers_top1perc_GF <- empirical_pvalues_df %>% 
+  arrange(pval_totalR2) %>%
+slice(1:(threshold_snp)) %>%  #slice(1:(0.01*nrow(.)))
+  as.data.frame()
+ 
+ outliers_top1perc_GF_list <- outliers_top1perc_GF$SNP
+  
+ outliers_list[[i]] <- outliers_top1perc_GF$SNP
+  }
+  
+  
+# Combine all SNPs identified in the outliers lists
+  all_outliers <- unlist(outliers_list)
+  
+  # Count occurrences of each SNP
+  snp_counts <- table(all_outliers)
+  
+  # Filter SNPs appearing at least twice
+  snps_identified_twice <- names(snp_counts[snp_counts >= 2])
+  
+  # Return the final list of SNPs identified at least twice
+  return(snps_identified_twice)
+}
+
+vars <- colnames(Past_climatic[,-c(1:2)])
+Run1 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run2 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run3 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run4 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run5 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+
+
+
+```
+
+```{r select the overlapping outliers across runs and save them}
+
+#store all run and select only outliers identified in all runs
+all_snps <- list()
+for (i in 1:5) {
+    all_snps[[i]] <- get(paste0("Run", i))
+}
+
+#Select only the outliers identified in all 5 runs
+common_snps_GF_raw <- Reduce(intersect, all_snps)
+
+save(common_snps_GF_raw,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/Outliers/common_snps_GF_raw.Rdata", force=T)
+```
+
+
+####################################       GF corrected for population structure   ####################################
+
+GF doesn't have an option to correct for population structure. To perform GF by correcting for population structure, we need to use as genomic dataset already corrected for population structure. We cannot use the scale population structure matrix of BAYPASS because we need a dataframe and not a matrix but we can used the genotypic dataset from LFMM that is corrected for population structure using latent factor.
+
+
+```{r load genotypic dataset corrected for populations structure}
+
+
+```
+
+
+
+
+```{r function to perform the GF and output the results in 1 code}
+Run_GF_and_select_outliers <- function(genomic_matrix, climatic_data, ntree, cores,nbr_loci_distrib,threshold_snp,vars){
+  
+outliers_list <- list()  # Initialize a list to store outliers
+
+  
+  #GF function
+  runGF <- function(alFreq,  envTab, vars, ntree, 
+                  cores, indLoci){
+  
+  ### CHECK THE FORMATTING OF THE EXAMPLE DATA & MAKE SURE YOUR DATA
+  ### TABLES ARE THE SAME (OR EDIT CODE TO MATCH YOUR FORMATTING)
+  
+  # freqFilePath = path to allele freq. file
+  # envTab = table of env data, with a row for each population
+  # vars = vector of variable names to be used in gf modeling
+  # ntree = the number of trees to fit using GF
+  # rmRare = remove rare alleles?
+  # SNPs = run all SNPs or subset (for subset, provide vector of SNP IDs)?
+  # cores = # number of processors to use
+  # indLoci = run loci individually or all in the same model?
+  # nRand = number of random SNPs to model if nRand > 0
+  
+  require(data.table)
+  require(gradientForest)
+  require(parallel)
+  require(foreach)
+  require(doParallel)
+  library(doParallel)
+  library(foreach)
+  library(parallel)
+  library(gradientForest)
+  library(data.table)
+  
+  if(identical(envTab$Population,rownames(alFreq))==F){
+    stop("Populations are not in the same order in the genomic and climatic tables.")
+  }
+  
+  # create custom object to hold output 
+  gfOutObj <- setClass("gfOutObj", slots = c(alFreq="data.frame", imp="list"))
+
+  # run in parallel if fitting SNPs individually
+  if(indLoci==T & !is.na(cores)){
+    # fit gf model to each SNP individually
+    cl <- makeCluster(cores, setup_strategy = "sequential")
+    registerDoParallel(cl)
+    
+
+    
+    gfMods <- foreach(k=1:ncol(alFreq), .verbose=F, .packages=c("gradientForest"), .errorhandling = c("pass")) %dopar%{
+      locus <- data.frame(alFreq[,k])
+      names(locus) <- colnames(alFreq)[k]
+      gf.mod <- gradientForest(data.frame(envTab[, vars], locus), 
+                               predictor.vars=vars, response.vars=colnames(alFreq)[k], 
+                               corr.threshold=0.5, ntree=ntree, trace=T)
+
+    
+    
+    if(!is.null(gf.mod)){
+        imps <- importance(gf.mod)
+        imps <- imps[order(names(imps))]
+        data.frame(imps, SNP = colnames(alFreq)[k])
+      }
+    }
+    
+    stopCluster(cl)
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  } else {
+    # run all SNPs at once if not fitting individually
+    gf.mod <- gradientForest(data.frame(envTab[, vars], alFreq), 
+                             predictor.vars=vars, response.vars=colnames(alFreq), 
+                             corr.threshold=0.5, ntree=ntree, trace=T)
+    
+    return(gfOutObj(alFreq = data.frame(alFreq), imp = gfMods))
+  }
+}
+  
+  
+
+  
+  #run GF
+  GF_test <- runGF(genomic_matrix,climatic_data,vars,ntree=ntree, 
+                  cores=cores, indLoci=T)
+  
+  
+  #extract the loci correlated to the climate
+  Extract_correlation_loci_climate<- GF_test@imp
+loci_correlated_climate <- Filter(function(x) !inherits(x, "error"),  Extract_correlation_loci_climate)
+
+#extracting R^2 values
+gfR2tab <- function(gfMods.list){
+  gfMods.list <- gfMods.list
+  i=1
+  while(is.null(gfMods.list[[i]])){i=i+1}
+  tab <- do.call(rbind, gfMods.list)
+  vrNm <- rep(row.names(tab)[1:nrow(gfMods.list[[i]])], 
+              nrow(tab)/nrow(gfMods.list[[i]]))
+  tab <- data.frame(variable=vrNm, tab)
+  tab <- reshape2::dcast(tab, SNP~variable, value.var="imps")
+  totalR2 <- rowSums(tab[,-1])
+  return(data.frame(tab, totalR2=totalR2))}
+
+
+dataset_R2_loci_climate <- gfR2tab(loci_correlated_climate)
+
+#select randomly the SNPs, we selected 20% of all SNPs to create the null distribution
+for(i in 1:5){
+name_neutral_snps <- sample(dataset_R2_loci_climate$SNP,nbr_loci_distrib,replace = F)
+
+neutral_snps_set <- dataset_R2_loci_climate %>% 
+    filter(SNP %in% name_neutral_snps)
+
+#empirical pvalues
+empirical_pvalues <- sapply(1:nrow(dataset_R2_loci_climate), function(x, dataset_R2_loci_climate, name_neutral_snps, neutral_snps_set){
+    snps2Rank <- rbind(dataset_R2_loci_climate[x,], neutral_snps_set) %>% 
+      distinct() %>% 
+      dplyr::select(-SNP)
+    P <- apply(snps2Rank, 2, function(y){
+      rankSNP <- frank(y)
+      return(1-rankSNP[1]/length(rankSNP))
+    })}, dataset_R2_loci_climate, neutral_snps, neutral_snps_set)
+  
+
+  # format output as data.frame
+  empirical_pvalues_df <- t(empirical_pvalues)
+  colnames(empirical_pvalues_df) <- paste("pval_", colnames(empirical_pvalues_df), sep="")
+  empirical_pvalues_df <- data.frame(dataset_R2_loci_climate, empirical_pvalues_df)
+
+  #top 1%
+ outliers_top1perc_GF <- empirical_pvalues_df %>% 
+  arrange(pval_totalR2) %>%
+slice(1:(threshold_snp)) %>%  #slice(1:(0.01*nrow(.)))
+  as.data.frame()
+ 
+ outliers_top1perc_GF_list <- outliers_top1perc_GF$SNP
+  
+ outliers_list[[i]] <- outliers_top1perc_GF$SNP
+  }
+  
+  
+# Combine all SNPs identified in the outliers lists
+  all_outliers <- unlist(outliers_list)
+  
+  # Count occurrences of each SNP
+  snp_counts <- table(all_outliers)
+  
+  # Filter SNPs appearing at least twice
+  snps_identified_twice <- names(snp_counts[snp_counts >= 2])
+  
+  # Return the final list of SNPs identified at least twice
+  return(snps_identified_twice)
+}
+
+vars <- colnames(Past_climatic[,-c(1:2)])
+Run1 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run2 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run3 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run4 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+Run5 <- Run_GF_and_select_outliers(genomic_matrix, Past_climatic, 500, 4,600,86,vars)
+
+#store all run and select only outliers identified in all runs
+all_snps <- list()
+for (i in 1:5) {
+    all_snps[[i]] <- get(paste0("Run", i))
+}
+
+#Select only the outliers identified in all 5 runs
+common_snps_GF_raw <- Reduce(intersect, all_snps)
+
+save(common_snps_GF_raw,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/Outliers/common_snps_GF_raw.Rdata", force=T)
+
+```
