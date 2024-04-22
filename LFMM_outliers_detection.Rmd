@@ -1,0 +1,158 @@
+---
+title: "LFMM_outliers_detection"
+author: "Thomas Francisco"
+date: "2024-04-10"
+output: html_document
+---
+
+```{r packages}
+if(!requireNamespace("qvalue", quietly = TRUE)) {  
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+  BiocManager::install(version = "3.14")
+  BiocManager::install("qvalue")
+}
+if(!requireNamespace("lfmm", quietly = TRUE)) {  
+  remotes::install_github("bcm-uga/lfmm")
+}
+library(LandGenCourse)
+library(vegan)    # Used to run PCA & RDA
+library(lfmm)     # Used to run LFMM
+library(qvalue)
+library(LEA)
+```
+
+
+This script will perform the outliers detection using the LFMM methods (Frichot et al. 2013). This script is based on the LFMM tutorial (Frichot and François) and the tutorial of Brenna R. Forester. 
+
+LFMM is a method that can be univariate or multivariate because we could calculate the association of SNPs with explanatory variables one by one or with all the explanatory variables together. This method can correct for population structure or not. This in a linear methods because it assumes a linear relationship between loci and climatic variables.
+LFMMs are regression models combining fixed (cliamtic variables) and latent effects (parameters influencing the association like population structure) (Caye et al. (2019)). 
+LfMM use a framework of mixte model with latent factor, Latent factor are hidden factors that represent background residual levels of
+population structure. 
+Latent factor are calulating using factorization methods -> that is really close to the method used in PCA -> explain why results of latent factor are close to PCs axis Frichot et al 2013.
+How this work in term of models, the effect of the environmental variables (primary parameters) on the response variables is taking into account while correcting for the population structure -> the position of the individuals or population in a space just like a PCA space if I simplify it. The more the populations are close in the space the more their score will be similar and can explain the genetic variation (because the more the population are closed the more we expect them to have genetic compo) and more the population are far the less their score will explain the genetic variation and then other factor could explain the genetic vatiation. (it's like the example of the weigh explain by the heigh and the sex, regardless of the heigh, we found that the sex has an impact on the weigh, we study the effect of the heigh on the weigh when the sex is constant(we remove the effect of the sex on the weigh by applying is coeeficient) and same things when we study the sex, we study this when the heigh is constant)
+
+
+There is two types of LFMM analys: 
+- lfmm()  is Bayesian method that uses a Monte-Carlo Markov Chain algoritm
+- lfmm2() is a frequentist approach that uses least-squares estimates (better for large dataset 1000 to 10000 because it's faster and also because with large dataset there is a convergence in results between frequentist and bayesian analysis).
+
+We will use the multivariate LFMM analysis. 
+There is few steps: 
+      - Load the genetic and climatic data
+      - Estimate the number of latent factor and run LFMM
+      - Calculate the pvalues and Check the pvalues distribution and correct by the GIF if necessary
+      - Select the threshold for outliers
+      
+
+    1. Load genetic and climatic data
+    
+```{r load data}
+
+#climatic data
+climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/Past_Climatic_data_scale_0.75cor.csv",sep=";",dec=",")
+
+#genomic data
+load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/data_allelic_frequencies_29pop_adapcon_gentree_475_8616.Rdata")
+genomic_data <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616
+
+#meta_data
+meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
+```
+
+We need to transform the genomic_dataset into a lfmm format 
+
+```{r genomic data into LFMM format}
+
+write.lfmm(genomic_data,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9
+
+#See if the 
+test <- data.frame(read.lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm"))
+```
+
+
+    2. Estimate the number of latent factor and run LFMM
+
+Based on the PC analysis with genetic data, it's seems that the 2 first PCs axis could be enough to account for population structure because we could discriminate the 3 main genes pools identified by STRUCTURE along the 2 PCs.
+Latent factor is not working exactly like a PCs so we will perform the latent factor analysis to see how many latent factors are required to discriminate the 3 main genes pools. 
+Moreover, "K may be replaced by estimates of population genetic structure obtained with clustering algorithms like STRUCTURE" according to Pritchard et al. 2000
+
+```{r latent factor}
+
+mod.lfmm2 <- lfmm2(input = genomic_data, env = climatic_data[,-c(1:2)], K = 2)
+# GEA significance test
+
+# showing the K = 2 estimated factors
+score_LFMM <- data.frame(mod.lfmm2@U)
+
+score_Pca_imputed <- data.frame(score_LFMM, row.names (genomic_data))
+      colnames(score_Pca_imputed) <- c(paste0("PC1"), paste0("PC2"), "Population")
+      
+      # add country, population information
+      PCa_df_imputed <- merge(score_Pca_imputed, meta_data_pop, "Population")
+      
+      # genetic PCA
+      ggplot_representation <- ggplot() +
+        geom_point(data = PCa_df_imputed, aes(PCa_df_imputed[,2],PCa_df_imputed[,3], color = PCa_df_imputed$Country)) +
+        scale_colour_manual(name = "Country",
+                            values = c("orangered3", "gold2", "darkorchid3", "navyblue", "turquoise2", "green3", "blue", "red", "black", "gray", "orange", "darkgreen")) 
+ggplot_representation
+
+```
+Comparison between the genetic PC and the latent factor with k=2 seems very similar. Based on that and a discussion with Benjamin Dauphin (he told that we should take k= number of groups-1), With 3 main gene pool groups, we will retain k=2. 
+
+
+    3. Calculate the pvalues and Check the pvalues distribution and correct by the GIF if necessary
+
+```{r calculate the pvalues}
+#non correcting for GIF
+pv_non_corrected <- lfmm2.test(object = mod.lfmm2,
+input = genomic_data,
+env = climatic_data[,-c(1:2)],
+full = T,
+genomic.control = F)
+
+
+#correcting for GIF
+pv_corrected <- lfmm2.test(object = mod.lfmm2,
+input = genomic_data,
+env = climatic_data[,-c(1:2)],
+full = T,
+genomic.control = T)
+```
+
+The next step is to visualize the pvalue distribution with pvalues corrected or not by the genomic inflation factor."The genomic inflation factor expresses the deviation of the distribution of the observed test statistic compared to the distribution of the expected test statistic" Van den Berg et al. 2019
+-> high GIF = indicate that we did not correct enough for popualtion stratification etc -> high rate of false positive
+-> low GIF = we corrected too much and we lose a part of the signal -> high rate of false negatives
+-> GIF near 1 = the correction is good
+
+To visualize which GIF seems pertinent according to our data, we can look at the shape of the distribution to visualize if we have corrected enough for the population structure because we should expect a pic of pvalues near 0 and then a continuous number of pvalues from 0.1 to 1. 
+We can compared the distribution of corrected and not corrected for GIF. 
+```{r visualize the pvalue distribution}
+#non corrected for GIF
+hist(pv_non_corrected$pvalues)
+
+#correcting for GIF
+hist(pv_corrected$pvalues)
+```
+
+
+Can we select our-self the GIF values? for LFMM2 univariate method (full= F), yes we can select a GIF values for each climatic variables but for the full model i don't find how to do it. 
+Arguments to use the univariate vs multivariate models: 
+
+  - univariate: less complicated models, less subject to violate th easumptions, for easy to interpretate 
+  - multivariate: take into account the complex effect or interaction of climatic variables on the genetic variations, reduce the number of test performed?
+
+    4. Selecting the threshold for outliers
+
+```{r threshold outlier detection}
+
+#bonferroni correction
+plot(-log10(pv_corrected$pvalues), col = "grey", cex = .5, pch = 19)
+abline(h = -log10(0.1/8616), lty = 2, col = "orange")
+
+#FDR correction
+outliers_FDR10perc <- qvalue(pv_corrected$pvalues)$qvalues
+
+length(which(outliers_FDR10perc < 0.1)) ## h.w many SNPs have an FDR < 10%?
+```
