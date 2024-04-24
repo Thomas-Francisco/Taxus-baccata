@@ -37,9 +37,11 @@ There is two types of LFMM analys:
 - lfmm()  is Bayesian method that uses a Monte-Carlo Markov Chain algoritm
 - lfmm2() is a frequentist approach that uses least-squares estimates (better for large dataset 1000 to 10000 because it's faster and also because with large dataset there is a convergence in results between frequentist and bayesian analysis).
 
+LFMM is an analysis using allele count so we need to perform this analysis at the individual level. 
+
 We will use the multivariate LFMM analysis. 
 There is few steps: 
-      - Load the genetic and climatic data
+      - Load genetic and climatic data
       - Estimate the number of latent factor and run LFMM
       - Calculate the pvalues and Check the pvalues distribution and correct by the GIF if necessary
       - Select the threshold for outliers
@@ -47,18 +49,28 @@ There is few steps:
 
     1. Load genetic and climatic data
     
+  
+To perform LFMM, genomic and climatic data needs to be in allele count so at the individual level and not population.  
 ```{r load data}
 
-#climatic data
-climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/Past_Climatic_data_scale_0.75cor.csv",sep=";",dec=",")
+#climatic data at individual level
+climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/climatic_data_indivdual_level.csv",sep=";",dec=",")
 
 #genomic data
-load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/data_allelic_frequencies_29pop_adapcon_gentree_475_8616.Rdata")
-genomic_data <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616
+load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/Gen_matrix_imp_T_Adapcon_Gentree_475_8616.Rdata")
+genomic_data <- Gen_matrix_imp_T_Adapcon_Gentree_475_8616
 
 #meta_data
 meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
 ```
+
+We need to adjust climatic data to the number of individuals in genomic data
+```{r climatic data}
+
+climatic_data_475 <- climatic_data[climatic_data$VCF_ID %in% row.names(Gen_matrix_imp_T_Adapcon_Gentree_475_8616),]
+
+```
+
 
 We need to transform the genomic_dataset into a lfmm format 
 
@@ -79,21 +91,23 @@ Moreover, "K may be replaced by estimates of population genetic structure obtain
 
 ```{r latent factor}
 
-mod.lfmm2 <- lfmm2(input = genomic_data, env = climatic_data[,-c(1:2)], K = 2)
+Run_LFMM2 <- lfmm2(input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm", env = climatic_data_475[,-c(1:3)], K = 2, effect.sizes = T)
 # GEA significance test
 
 # showing the K = 2 estimated factors
-score_LFMM <- data.frame(mod.lfmm2@U)
+score_LFMM <- data.frame(Run_LFMM2@U)
 
 score_Pca_imputed <- data.frame(score_LFMM, row.names (genomic_data))
-      colnames(score_Pca_imputed) <- c(paste0("PC1"), paste0("PC2"), "Population")
+      colnames(score_Pca_imputed) <- c(paste0("PC1"), paste0("PC2"), "VCF_ID")
+      #add pop info on the score_pca
+  score_Pca_imputed_meta <- merge(climatic_data_475[,c(1:2)],score_Pca_imputed, "VCF_ID")
       
       # add country, population information
-      PCa_df_imputed <- merge(score_Pca_imputed, meta_data_pop, "Population")
+      PCa_df_imputed <- merge(score_Pca_imputed_meta, meta_data_pop, "Population")
       
       # genetic PCA
       ggplot_representation <- ggplot() +
-        geom_point(data = PCa_df_imputed, aes(PCa_df_imputed[,2],PCa_df_imputed[,3], color = PCa_df_imputed$Country)) +
+        geom_point(data = PCa_df_imputed, aes(PCa_df_imputed[,3],PCa_df_imputed[,4], color = PCa_df_imputed$Country)) +
         scale_colour_manual(name = "Country",
                             values = c("orangered3", "gold2", "darkorchid3", "navyblue", "turquoise2", "green3", "blue", "red", "black", "gray", "orange", "darkgreen")) 
 ggplot_representation
@@ -106,17 +120,17 @@ Comparison between the genetic PC and the latent factor with k=2 seems very simi
 
 ```{r calculate the pvalues}
 #non correcting for GIF
-pv_non_corrected <- lfmm2.test(object = mod.lfmm2,
-input = genomic_data,
-env = climatic_data[,-c(1:2)],
+pv_non_corrected <- lfmm2.test(object = Run_LFMM2,
+input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm",
+env = climatic_data_475[,-c(1:3)],
 full = T,
 genomic.control = F)
 
 
 #correcting for GIF
-pv_corrected <- lfmm2.test(object = mod.lfmm2,
-input = genomic_data,
-env = climatic_data[,-c(1:2)],
+pv_corrected <- lfmm2.test(object = Run_LFMM2,
+input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm",
+env = climatic_data_475[,-c(1:3)],
 full = T,
 genomic.control = T)
 ```
@@ -140,7 +154,7 @@ hist(pv_corrected$pvalues)
 Can we select our-self the GIF values? for LFMM2 univariate method (full= F), yes we can select a GIF values for each climatic variables but for the full model i don't find how to do it. 
 Arguments to use the univariate vs multivariate models: 
 
-  - univariate: less complicated models, less subject to violate th easumptions, for easy to interpretate 
+  - univariate: less complicated models, less subject to violate the assumptions, for easy to interpret ate 
   - multivariate: take into account the complex effect or interaction of climatic variables on the genetic variations, reduce the number of test performed?
 
     4. Selecting the threshold for outliers
@@ -149,10 +163,60 @@ Arguments to use the univariate vs multivariate models:
 
 #bonferroni correction
 plot(-log10(pv_corrected$pvalues), col = "grey", cex = .5, pch = 19)
-abline(h = -log10(0.1/8616), lty = 2, col = "orange")
+abline(h = -log10(0.05/8616), lty = 2, col = "orange")
 
 #FDR correction
-outliers_FDR10perc <- qvalue(pv_corrected$pvalues)$qvalues
+outliers_FDR5perc <- data.frame(snp_names=colnames(genomic_data) ,qvalues=qvalue(pv_corrected$pvalues)$qvalues)
 
-length(which(outliers_FDR10perc < 0.1)) ## h.w many SNPs have an FDR < 10%?
+#threshold
+thres_FDR <- 0.05
+
+outliers_T_adapcon_gentree_LFMM <- data.frame(SNP=outliers_FDR5perc$snp_names[which(outliers_FDR5perc$qvalues<thres_FDR)],qvalues = outliers_FDR5perc$qvalues[which(outliers_FDR5perc$qvalues<thres_FDR)])
+
+length(which(outliers_FDR5perc$qvalues < thres_FDR)) ## h.w many SNPs have an FDR < 5%?
+
+
 ```
+
+
+We need to save the outliers identified for downstream analysis
+
+```{r save outliers set}
+write_xlsx(outliers_T_adapcon_gentree_LFMM,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM.xlsx")
+save(outliers_T_adapcon_gentree_LFMM, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM.Rdata")
+```
+
+
+
+############################## Corrected matrix for Population structure for GF analysis  #######################
+
+In order to perform a outliers detection corrected for population structure using GF, we need to use as input a genomic matrix corrected for population structure because GF cannot correct for population structure. To calculate this corrected matrix we followed Archambeau et al. 2024 using the LFMM approach to calculate the corrected geno matrix. 
+To understand, here the model applied by the lfmm2 function:
+
+where **B**, **U** and **V** are the effect size, and factor and loading matrices adjusted by the lfmm2 algorithm from the set of current environmental variables included in the matrix **X**. **B** is a matrix of dimension **p × b** with **p** the number of genetic markers and **b** the number of environmental variables. **U** is a matrix of dimension **n x K** , with **n** the number of individuals (ie genotypes) and  **K** the number of latent factors. **V** is a matrix of dimension **p x K**. **X** is a matrix of dimension ** n x b**. **Yfut** is a matrix of dimension **n x p**
+
+We want a matrix of allele frequencies corrected for population structure, so basically:
+                        Ycorrected = Yfut - UVt = XBt
+
+
+Below, we do the matrix multiplication of the matrix X (dimension n x b) and the transpose of the matrix B (dimension b x p) to obtain the matrix Ycorrect (dimension n x p).
+
+The matrix B is the matrix from the lfmm2 output
+```{r correctd matrix}
+library(DescTools)
+library(magrittr)
+# matrix X where we x by the matrix B. 
+Genomic_matrix_corrected_from_LFMM_T_adapcon_gentree <- as.matrix(climatic_data_475[,-c(1:3)]) %*% t(Run_LFMM2@B) %>% set_rownames(row.names(genomic_data)) %>% set_colnames(colnames(genomic_data)) %>% as.data.frame()
+
+```
+
+-> The correct matrix gave very similar values of individuals of the same population because they are closed in the PCA. We have more important differences for individuals far from each other in the PCA (realized by LFMM). 
+
+We save the corrected genotypic matrix for BF analysis
+```{r save the corrected genotypic matrix}
+
+save(Genomic_matrix_corrected_from_LFMM_T_adapcon_gentree, file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/Genomic_matrix_corrected_from_LFMM_T_adapcon_gentree.Rdata")
+
+```
+
+
