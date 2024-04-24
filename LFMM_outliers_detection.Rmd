@@ -6,20 +6,25 @@ output: html_document
 ---
 
 ```{r packages}
-if(!requireNamespace("qvalue", quietly = TRUE)) {  
-  if (!requireNamespace("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-  BiocManager::install(version = "3.14")
-  BiocManager::install("qvalue")
-}
-if(!requireNamespace("lfmm", quietly = TRUE)) {  
-  remotes::install_github("bcm-uga/lfmm")
-}
-library(LandGenCourse)
-library(vegan)    # Used to run PCA & RDA
+knitr::opts_chunk$set(cache = FALSE)
+
+rm(list = ls())
+#if(!requireNamespace("qvalue", quietly = TRUE)) {  
+ # if (!requireNamespace("BiocManager", quietly = TRUE))
+  #  install.packages("BiocManager")
+  #BiocManager::install(version = "3.14")
+  #BiocManager::install("qvalue")
+#}
+#if(!requireNamespace("lfmm", quietly = TRUE)) {  
+ # remotes::install_github("bcm-uga/lfmm")
+#}
 library(lfmm)     # Used to run LFMM
 library(qvalue)
 library(LEA)
+library(ggplot2)
+library(writexl)
+library(DescTools)#change columns, rows ...
+library(magrittr)#change columns, rows ...
 ```
 
 
@@ -50,13 +55,13 @@ There is few steps:
     1. Load genetic and climatic data
     
   
-To perform LFMM, genomic and climatic data needs to be in allele count so at the individual level and not population.  
+To perform LFMM, genomic data needs to be in alleles count so at the individual level and not population level.  
 ```{r load data}
 
 #climatic data at individual level
 climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/climatic_data_indivdual_level.csv",sep=";",dec=",")
 
-#genomic data
+#genomic data alleles count
 load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/Gen_matrix_imp_T_Adapcon_Gentree_475_8616.Rdata")
 genomic_data <- Gen_matrix_imp_T_Adapcon_Gentree_475_8616
 
@@ -72,13 +77,13 @@ climatic_data_475 <- climatic_data[climatic_data$VCF_ID %in% row.names(Gen_matri
 ```
 
 
-We need to transform the genomic_dataset into a lfmm format 
+We need to transform the genomic dataset into a lfmm format 
 
 ```{r genomic data into LFMM format}
 
-write.lfmm(genomic_data,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9
+write.lfmm(genomic_data,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9
 
-#See if the 
+#See if the lfmm is in the right format
 test <- data.frame(read.lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm"))
 ```
 
@@ -91,26 +96,35 @@ Moreover, "K may be replaced by estimates of population genetic structure obtain
 
 ```{r latent factor}
 
-Run_LFMM2 <- lfmm2(input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm", env = climatic_data_475[,-c(1:3)], K = 2, effect.sizes = T)
+Run_LFMM2 <- lfmm2(input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm", env = climatic_data_475[,-c(1:3)], K = 2, effect.sizes = T)
 # GEA significance test
 
 # showing the K = 2 estimated factors
 score_LFMM <- data.frame(Run_LFMM2@U)
 
-score_Pca_imputed <- data.frame(score_LFMM, row.names (genomic_data))
-      colnames(score_Pca_imputed) <- c(paste0("PC1"), paste0("PC2"), "VCF_ID")
+score_Pca <- data.frame(score_LFMM, row.names (genomic_data))
+      colnames(score_Pca) <- c(paste0("PC1"), paste0("PC2"), "VCF_ID")
       #add pop info on the score_pca
-  score_Pca_imputed_meta <- merge(climatic_data_475[,c(1:2)],score_Pca_imputed, "VCF_ID")
+  score_Pca_meta_data <- merge(climatic_data_475[,c(1:2)],score_Pca, "VCF_ID")
       
       # add country, population information
-      PCa_df_imputed <- merge(score_Pca_imputed_meta, meta_data_pop, "Population")
+      PCa_df_score <- merge(score_Pca_meta_data, meta_data_pop, "Population")
       
       # genetic PCA
-      ggplot_representation <- ggplot() +
-        geom_point(data = PCa_df_imputed, aes(PCa_df_imputed[,3],PCa_df_imputed[,4], color = PCa_df_imputed$Country)) +
-        scale_colour_manual(name = "Country",
-                            values = c("orangered3", "gold2", "darkorchid3", "navyblue", "turquoise2", "green3", "blue", "red", "black", "gray", "orange", "darkgreen")) 
-ggplot_representation
+      latent_factor_LFMM2_outliers_selection <- ggplot() +
+        geom_point(data = PCa_df_score, aes(PC1,PC2, color = Country)) +
+        scale_colour_manual(name = "Countries",
+                            values = c("orangered3", "gold2", "darkorchid3", "navyblue", "turquoise2", "green3", "blue", "red", "black", "gray", "orange", "darkgreen")) +
+  xlab(paste0("PC1")) + 
+  ylab(paste0("PC2")) +
+  facet_wrap(~"Principa component analysis using latent factor from LFMM") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size=11))
+
+print(latent_factor_LFMM2_outliers_selection)
+      
+ #save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/latent_factor_LFMM2_outliers_selection.png");print(latent_factor_LFMM2_outliers_selection);dev.off()
 
 ```
 Comparison between the genetic PC and the latent factor with k=2 seems very similar. Based on that and a discussion with Benjamin Dauphin (he told that we should take k= number of groups-1), With 3 main gene pool groups, we will retain k=2. 
@@ -144,10 +158,25 @@ To visualize which GIF seems pertinent according to our data, we can look at the
 We can compared the distribution of corrected and not corrected for GIF. 
 ```{r visualize the pvalue distribution}
 #non corrected for GIF
-hist(pv_non_corrected$pvalues)
+Histogram_of_non_calibrated_Pvalues_LFMM<- hist(pv_non_corrected$pvalues,
+     main= "Histogram of non-calibrated P-values",
+     xlab= "P-values")
+
+#save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Histogram_of_non_calibrated_Pvalues_LFMM.png");hist(pv_non_corrected$pvalues,
+     main= "Histogram of non-calibrated P-values",
+     xlab= "P-values"); dev.off()
 
 #correcting for GIF
-hist(pv_corrected$pvalues)
+Histogram_of_calibrated_Pvalues_LFMM<-hist(pv_corrected$pvalues,
+     main= "Histogram of calibrated P-values",
+     xlab= "P-values")
+
+#save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Histogram_of_calibrated_Pvalues_LFMM.png");hist(pv_corrected$pvalues,
+     main= "Histogram of calibrated P-values",
+     xlab= "P-values");dev.off()
+
 ```
 
 
@@ -159,11 +188,14 @@ Arguments to use the univariate vs multivariate models:
 
     4. Selecting the threshold for outliers
 
+
+
+
+
+
 ```{r threshold outlier detection}
 
-#bonferroni correction
-plot(-log10(pv_corrected$pvalues), col = "grey", cex = .5, pch = 19)
-abline(h = -log10(0.05/8616), lty = 2, col = "orange")
+df_pvalues_calibrated <- data.frame(SNP=colnames(genomic_data),pvalues=pv_corrected$pvalues)
 
 #FDR correction
 outliers_FDR5perc <- data.frame(snp_names=colnames(genomic_data) ,qvalues=qvalue(pv_corrected$pvalues)$qvalues)
@@ -175,6 +207,33 @@ outliers_T_adapcon_gentree_LFMM <- data.frame(SNP=outliers_FDR5perc$snp_names[wh
 
 length(which(outliers_FDR5perc$qvalues < thres_FDR)) ## h.w many SNPs have an FDR < 5%?
 
+
+```
+
+```{r Manhattan plot }
+#selection of the outliers from FDR 5%
+df_pvalues_calibrated$type <- "Neutral" ;df_pvalues_calibrated$type[df_pvalues_calibrated$SNP%in%outliers_T_adapcon_gentree_LFMM$SNP] <- "Outlier"
+df_pvalues_calibrated$type <- as.factor(df_pvalues_calibrated$type)
+
+#Bonferroni threshold
+threshold_bonferroni <- 0.05/nrow(df_pvalues_calibrated)
+
+#plot
+ Manhattan_plot_LFMM_FDR_5perc<-ggplot(data = df_pvalues_calibrated_f) +
+  geom_point(aes(x=1:nrow(df_pvalues_calibrated), y=-log10(pvalues), col = Outliers), size=1.4) +
+  scale_color_manual(values = c("lightblue", "orange")) +
+  xlab("Loci") + ylab("-log10(p.values)") +
+  geom_hline(yintercept=-log10(threshold_bonferroni), linetype="dashed", color = "red", size=0.6) +
+  ggtitle("Manhattan plot LFMM, with FDR 5% threshold") +
+  guides(color=guide_legend(title="Type")) +
+  theme_bw(base_size = 11) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))
+
+
+print(Manhattan_plot_LFMM_FDR_5perc)
+      
+ #save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Manhattan_plot_LFMM_FDR_5perc.png");print(Manhattan_plot_LFMM_FDR_5perc);dev.off()
 
 ```
 
@@ -203,8 +262,6 @@ Below, we do the matrix multiplication of the matrix X (dimension n x b) and the
 
 The matrix B is the matrix from the lfmm2 output
 ```{r correctd matrix}
-library(DescTools)
-library(magrittr)
 # matrix X where we x by the matrix B. 
 Genomic_matrix_corrected_from_LFMM_T_adapcon_gentree <- as.matrix(climatic_data_475[,-c(1:3)]) %*% t(Run_LFMM2@B) %>% set_rownames(row.names(genomic_data)) %>% set_colnames(colnames(genomic_data)) %>% as.data.frame()
 
