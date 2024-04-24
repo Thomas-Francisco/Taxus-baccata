@@ -52,12 +52,15 @@ pRDA_env <- rda(formula = genomic_matrix ~  Annual_Tc+Tc_diur_range+Tc_Seasonali
 
 RsquareAdj(pRDA_env)
 summary(pRDA_env)
+
 #significativity of the model
-anova.cca(pRDA_env)
+
+#anova.cca(pRDA_env)
 
 #test the significativity of the axis and the climatic variables using permutation
-anova.cca(pRDA_env, step = 1000, by = "axis")
-anova.cca(pRDA_env, step = 1000, by = "term")
+
+#anova.cca(pRDA_env, step = 1000, by = "axis")
+#anova.cca(pRDA_env, step = 1000, by = "term")
 
 ```
 
@@ -115,11 +118,11 @@ biplot_populations <- ggplot() +
   geom_segment(data = score_climatic_var, aes(xend = RDA1, yend = RDA2, x = 0, y = 0), colour = "black", size = 0.15, linetype = 1, arrow = arrow(length = unit(0.02, "npc"))) +
   geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5)+
   xlab(paste0("RDA 1 (",explained_variance_round[1],"%)")) + 
-  ylab(paste0("RDA 1 (",explained_variance_round[2],"%)")) +
-  facet_wrap(~ "Adaptively enriched RDA space") +
+  ylab(paste0("RDA 2 (",explained_variance_round[2],"%)")) +
+  ggtitle("Biplot pRDA Populations") +
   scale_color_manual(name = "Countries", values = group_palette, labels = levels(score_with_country_info$Country)) +
   theme_bw(base_size = 11) +
-  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size = 11)) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic")) +
   labs(color = "Country")
 
  print(biplot_populations)
@@ -155,17 +158,14 @@ rdadapt<-function(rda,K)
 genome_scan_pRDA <- rdadapt(pRDA_env,2)
 
 #plot the distribution of pvalues 
-hist(genome_scan_pRDA$p.values)
+Histogram_of_Pvalues_pRDA<- hist(genome_scan_pRDA$p.values,
+     main= "Histogram of pRDA P-values",
+     xlab= "P-values")
 
 #save the histogram
- png(filename="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/pRDA/pvalues_distribution.png")
-
-# a histogram we want to save
-hist(genome_scan_pRDA$p.values)
-
-# call this function to save the file 
-dev.off()
-
+ png(filename="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/pRDA/Histogram_of_Pvalues_pRDA.png");Histogram_of_Pvalues_pRDA<- hist(genome_scan_pRDA$p.values,
+     main= "Histogram of pRDA P-values",
+     xlab= "P-values");dev.off()
 ```
     4. Selection of a threshold
     
@@ -248,11 +248,12 @@ score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$FDR5),]
   geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5, family = "Times") +
   xlab(paste0("RDA 1 (",explained_variance_round[1],"%)")) + 
   ylab(paste0("RDA 1 (",explained_variance_round[2],"%)")) +
-  facet_wrap(~"RDA space: outliers FDR 5%") +
+  ggtitle("pRDA space: outliers FDR 5%") +
   guides(color=guide_legend(title="Locus type")) +
-  scale_color_manual(values = c("gray90", "#F9A242FF")) +
-  theme_bw(base_size = 11, base_family = "Times") +
-  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size=11))
+  scale_color_manual(values = c("lightblue", "#F9A242FF")) +
+  theme_bw(base_size = 11) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))
+ 
 
  print(biplot_outliers_pRDA)
  
