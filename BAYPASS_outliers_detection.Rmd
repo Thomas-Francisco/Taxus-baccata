@@ -19,10 +19,10 @@ library(writexl)
 library(mvtnorm)
 library(geigen)
 library(data.table)
-#meta_data
-meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
 
-meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+#run the script baypass_R_functions
+
+
 ```
 
 BAYPASS is an outlier detection method developped by Gauthier in 2015. The underlying models explicitly account for (and may estimate) the covariance structure among the population allele frequencies that originates from the shared history of the populations. There are 3 models working differently: 
@@ -48,6 +48,14 @@ The format needs to be in the format with SNP in rows with one row per SNP and i
  SNP 2: 82 0 91 0 84 14 24 57 28 80 18 80
  
 We will need to put two genomic file in this format: the file that is used for GEA and the file that is used to calculate the covariance matrix to take into account the population structure (this file is not filtered by MAF because MAF is important to asses population structure)
+
+```{r metadata}
+#meta data pop
+meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
+#meta data indiv
+meta_data_vcf=read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Samples/samples_taxus_baccata_adapcon_gentree.csv",h=T,sep=";",dec=",")
+```
+
 
 ```{r Load genomic data}
 #genomic data for outlier detection
@@ -289,29 +297,42 @@ The covariate matrix that is used to correct for population structure is scale d
 The output results are here: 
 ```{r covariate matrix}
 omega <- as.matrix(read.table("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/BAYPASS/covari_matrix_core_model/out_mat_omega.out"))
-pop_names <- climatic_data$Country
-dimnames(omega)=list(pop_names,pop_names)
+country_names <- climatic_data$Country
+dimnames(omega)=list(country_names,country_names)
 ```
 Now, we can Visualize the matrix using plot, corrplot and heatmap as proposed by Gautier (BAYPASS Manual) and following Archambeau 2024. 
 
 ```{r plot, corrplot and heatmap}
-
-
 # Using SVD decomposition
-plot.omega(omega=omega,pop.names=pop_names)
+SVD_decomposition_omega_matrix <- plot.omega(omega=omega,pop.names=country_names)
+
+#save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/BAYPASS/SVD_decomposition_omega_matrix.png");SVD_decomposition_omega_matrix <- plot.omega(omega=omega,pop.names=country_names);dev.off()
 
 # as a correlation plot
-cor_mat=cov2cor(omega)
+cor_mat <- cov2cor(omega)
 corrplot::corrplot(cor_mat)
 # corrplot(cor_mat,method="color",mar=c(2,1,2,2)+0.1,
 # main=expression("Correlation map based on"~hat(Omega)))
 
 # as a heatmap and hierarchical clustering tree (using the average agglomeration method)
+##we use the population names
+pop_names <- climatic_data$Population
+dimnames(omega)=list(pop_names,pop_names)
+
+#cor matrix 
+cor_mat <- cov2cor(omega)
+
 hclust_ave <- function(x) hclust(x, method="average")
-heatmap(1-cor_mat,hclustfun = hclust_ave,
+Heatmap_omega_matrix<-heatmap(1-cor_mat,hclustfun = hclust_ave,
 main=expression("Heatmap of "~hat(Omega)~"("*d[ij]*"=1-"*rho[ij]*")"))
+
+#save
+png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/BAYPASS/Heatmap_omega_matrix.png");Heatmap_omega_matrix<-heatmap(1-cor_mat,hclustfun = hclust_ave,
+main=expression("Heatmap of "~hat(Omega)~"("*d[ij]*"=1-"*rho[ij]*")"));dev.off()
+
 ```
-  
+  We can see that the plot of the omega matrix is very similar to what found using a PCA with the 2 firsts axis. The correction for the population structure in BAYPASS is then similar to pRDA, LFMM and GF corrected. 
   
   
     4. Run the standard covariate model with IS in ubuntu
@@ -343,7 +364,7 @@ Then, we need to add the snps and climatic data names to the BAYPASS output
 ```{r add the names}
 
 for(x in 1:5){
-  output_BAYPASS_run <- read.table(paste0("C:/Users/tfrancisco/Documents/Thèse/Résultats/species/taxus/GEA/BAYPASS/out_BAYPASS_outliers_ide_",x,"_summary_betai_reg.out"),h=T)
+  output_BAYPASS_run <- read.table(paste0("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/BAYPASS/out_BAYPASS_outliers_ide_",x,"_summary_betai_reg.out"),h=T)
   
   #add the name of the climatic variables
   
@@ -421,7 +442,8 @@ for(var in names_climatic_variables){
 
 #list of dataset with data of all run for each climatic data
 final_names_dataframe <- c("bio1_1901_1950_BAYPASS_all_runs","bio2_1901_1950_BAYPASS_all_runs","bio4_1901_1950_BAYPASS_all_runs","bio12_1901_1950_BAYPASS_all_runs","bio15_1901_1950_BAYPASS_all_runs")
-
+#name climatic data
+names_climatic_variables <- colnames(climatic_data[,-c(1,2)])
 ```
 
 
@@ -429,7 +451,9 @@ Then, we want to see if these values are consistent across runs by testing the c
 
 ```{r correlation between runs for BF}
 ##correlation between runs for BF 
-for(var in final_names_dataframe){
+for(x in 1:5){
+  var <- final_names_dataframe[x]
+  
   #names of the corr matrix for each biovariable
   names_corr <- paste0("correlation_",var,"_BF")
   #title of corrplot
@@ -444,10 +468,15 @@ assign(names_corr,corr_bio)
 #plot corrplot
 corr_plot <- corrplot(get(names_corr), method = "number", addrect = 2, col = c("red", "white", "red"), type = "lower", tl.col = "black", tl.cex = 0.6, number.cex = 0.6, title = title,mar=c(0,0,1,0) )
 
+
+
+#save
+png(paste0("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/BAYPASS/correlation_BF_values_across_runs_",names_climatic_variables[x],".png"));corr_plot <- corrplot(get(names_corr), method = "number", addrect = 2, col = c("red", "white", "red"), type = "lower", tl.col = "black", tl.cex = 0.6, number.cex = 0.6, title = title,mar=c(0,0,1,0) )
+;dev.off()
 }
 
 ```
-Interpretation: EBpis values are very similar across runs. We can see that the correlation between runs for all the climatic variables are all equal or above 0.84. 
+Interpretation: BF values are very similar across runs. We can see that the correlation between runs for all the climatic variables are all equal or above 0.84. 
 Conclusion: We can identified outliers based on a mean values of BF across runs. 
 
 ```{r correlation between runs for EBPis}
@@ -540,6 +569,8 @@ assign(paste0("outliers_",names_climatic_var),count)
 #name of the outliers
   
   outliers_names_summary <- rbind(names_outliers_bio1_1901_1950,names_outliers_bio2_1901_1950,names_outliers_bio4_1901_1950,names_outliers_bio12_1901_1950,names_outliers_bio15_1901_1950)
+  
+  
   
   #finally we can search for same outliers across climatic variables
 
