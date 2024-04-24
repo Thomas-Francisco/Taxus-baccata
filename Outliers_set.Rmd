@@ -1,0 +1,165 @@
+---
+title: "Outliers_set"
+author: "Thomas Francisco"
+date: "2024-04-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+knitr::opts_chunk$set(cache = FALSE)
+library(VennDiagram)
+
+```
+
+
+This script will enable to visualize and choose the set of outliers loci that will be used to compute genomic offset. To select the candidates SNPs, we performed 5 GEA methods in order to detect SNPs potentially correlated with climatic variables: 
+    - RDA: Redundancy analysis. It's a linear multivariate methods (multivariate for response and explanatory variables) that do not account for population structure
+    - pRDA: Partial Redundancy analysis. It's an extension of the RDA accounting for population structure. As proxy of population structure, we used the PCs axis of a genetic PCA. 
+    - BAYPASS: It's also a linear models accounting for population structure, univariate because it does consider explanatory variables one by one. The proxy of population structure is an omega matrix of genetic variation between populations using the core model of BAYPASS. 
+    - LFMM: latent factor mixte model: it's a linear multivariate model: all explanatory variables are studying together. It does correct for population structure by using latent factor (it's very similar to what we found with genetic PCs) 
+    - GF: it's a non linear model based on machine learning. It does not correct for population structure and it's a multivariate analysis. snp per snp but all climatic variables together. Nevertheless, we can try to correct by population structure but it did not work well...
+    
+    
+Each of these methods provide a set of candidate SNPs. To select our outliers, we will only retained from these candidates, SNP identified by at least 2 methods. 
+
+    1. Load the candidates snps 
+
+
+```{r load data}
+#names of the files
+list_data <- c("outliers_RDA_FDR5perc_T_Adapcon_gentree","outliers_pRDA_FDR5perc_T_Adapcon_gentree","outliers_T_adapcon_gentree_BAYPASS","outliers_T_adapcon_gentree_LFMM","outliers_rank_based_top1perc_GF_raw")
+
+#name of the output
+names_set <- c("RDA","pRDA","BAYPASS","LFMM","GF")
+
+#load data
+for(x in 1:5){
+  
+  set <- list_data[x]
+  load(paste0("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/",set,".Rdata"))
+  
+  name <- names_set[x]
+
+
+assign(paste0(name,"_set"),get(set))  
+
+}
+```
+
+
+We need to put every set into the same format
+```{r format sets}
+#list of candidates
+list_candidates<-list(RDA=RDA_set[,1],pRDA=pRDA_set[,1],BAYPASS=BAYPASS_set[,1],LFMM=LFMM_set[,1],GF=GF_set)
+```
+
+
+
+we can represent in a venn diagram to visualize the overlapping candidates
+```{r venn.diagram}
+ venn.diagram(x = list_candidates,
+        category.names = c("RDA" ,"pRDA","BAYPASS","LFMM","GF"),
+        filename = "C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/venn_diagramm_candidates.png",fill = c("#45B6AA","#D45176","#91A6CE","#86AD4C","#33A5CE"),
+alpha = 0.30,
+print.mode=c("raw"),
+imagetype="png",
+output=TRUE)
+
+```
+
+Now, we can make a dataframe with only the overlapping candidate of at least 2 methods: 
+
+```{r Overlapping snp of at least 2 methods}
+comm_RDA_pRDA <- data.frame(outliers=list_candidates[c("RDA","pRDA")] %>% Reduce(intersect, .))
+comm_RDA_BAYPASS <- data.frame(outliers=list_candidates[c("RDA","BAYPASS")] %>% Reduce(intersect, .))
+comm_RDA_GF <- data.frame(outliers=list_candidates[c("GF","RDA")] %>% Reduce(intersect, .))
+comm_RDA_LFMM <- data.frame(outliers=list_candidates[c("LFMM","RDA")] %>% Reduce(intersect, .))
+comm_pRDA_BAYPASS <- data.frame(outliers=list_candidates[c("pRDA","BAYPASS")] %>% Reduce(intersect, .))
+comm_pRDA_GF <- data.frame(outliers=list_candidates[c("GF","pRDA")] %>% Reduce(intersect, .))
+comm_pRDA_LFMM <- data.frame(outliers=list_candidates[c("LFMM","pRDA")] %>% Reduce(intersect, .))
+comm_BAYPASS_GF <- data.frame(outliers=list_candidates[c("GF","BAYPASS")] %>% Reduce(intersect, .))
+comm_BAYPASS_LFMM <- data.frame(outliers=list_candidates[c("LFMM","BAYPASS")] %>% Reduce(intersect, .))
+comm_GF_LFMM <- data.frame(outliers=list_candidates[c("GF","LFMM")] %>% Reduce(intersect, .))
+
+
+outliers_set <- data.frame(rbind(comm_RDA_pRDA,comm_RDA_BAYPASS,comm_RDA_GF,comm_RDA_LFMM,comm_pRDA_BAYPASS,comm_pRDA_GF,comm_pRDA_LFMM,comm_BAYPASS_GF,comm_BAYPASS_LFMM,comm_GF_LFMM)) %>% unique()
+```
+
+We can see that some of the outliers are located on the same contig. This can bias the signals by giving more signals to regions of the genome with more outliers from the same signal becaus ethey are in LD. 
+We want to keep only 1 candidate per contig where we have more than 1 candidate per contigs. 
+
+To do this, we will keep the candidate with the lower pvalues when we have more than 1 candidate per contig to keep the best signal. 
+```{r Keeping 1 candidate per contig}
+#create a column contig 
+  outliers_set_contig <- outliers_set %>%
+  mutate(contig = sub("_[^_]*$", "", outliers))
+
+#1 candidate per contig  
+  outliers_final <- outliers_set_contig$contig %>% unique() %>% as.data.frame
+
+```
+
+
+
+
+Finally, we can save the candidate set for further analysis. 
+```{r save the outliers set}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Initialize an empty vector to store the assign names
+names_comm <- c()
+
+for (i in 1:(length(list_candidates) - 1)) {
+  for (j in (i + 1):length(list_candidates)) {
+    
+    
+    
+    var1 <- names_set[i]
+    var2 <- names_set[j]
+    
+    # Find common outliers between the two datasets
+    common_outliers <- intersect(list_candidates[[i]], list_candidates[[j]])
+    
+    assign_name <- paste0("comm_", var1, "_", var2)
+    
+assign(paste0("comm_",var1,"_",var2),common_outliers)
+
+ # Add assign name to the vector
+    names_comm <- c(names_comm, assign_name)
+    
+    
+  }
+}
+
+
+
+
+
+
+
+```{r SNPs in common}
+
+
+
+```
+
