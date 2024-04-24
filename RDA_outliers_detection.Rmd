@@ -37,7 +37,7 @@ load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_n
 genomic_matrix <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616
 
 #climatic/structure/IBD
-load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/variance_partitioning/Data_RDA_pRDA_T.Rdata")
+load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/variance_partitioning/Data_RDA_pRDA_T.Rdata") 
 
 
 ```
@@ -51,12 +51,15 @@ RDA_env <- rda(formula = genomic_matrix ~  Annual_Tc+Tc_diur_range+Tc_Seasonalit
 
 RsquareAdj(RDA_env)
 summary(RDA_env)
+
 #significativity of the model
-anova.cca(RDA_env)
+
+#anova.cca(RDA_env)
 
 #test the significativity of the axis and the climatic variables using permutation
-anova.cca(RDA_env, step = 1000, by = "axis")
-anova.cca(RDA_env, step = 1000, by = "term")
+
+#anova.cca(RDA_env, step = 1000, by = "axis")
+#anova.cca(RDA_env, step = 1000, by = "term")
 
 ```
 
@@ -114,11 +117,11 @@ biplot_populations <- ggplot() +
   geom_segment(data = score_climatic_var, aes(xend = RDA1, yend = RDA2, x = 0, y = 0), colour = "black", size = 0.15, linetype = 1, arrow = arrow(length = unit(0.02, "npc"))) +
   geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5)+
   xlab(paste0("RDA 1 (",explained_variance_round[1],"%)")) + 
-  ylab(paste0("RDA 1 (",explained_variance_round[2],"%)")) +
-  facet_wrap(~ "Biplot RDA Populations") +
+  ylab(paste0("RDA 2 (",explained_variance_round[2],"%)")) +
+  ggtitle("Biplot RDA Populations") +
   scale_color_manual(name = "Countries", values = group_palette, labels = levels(score_with_country_info$Country)) +
   theme_bw(base_size = 11) +
-  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size = 11)) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))+
   labs(color = "Country")
 
  print(biplot_populations)
@@ -154,17 +157,14 @@ rdadapt<-function(rda,K)
 genome_scan_RDA <- rdadapt(RDA_env,2)
 
 #plot the distribution of pvalues 
-hist(genome_scan_RDA$p.values)
+Histogram_of_Pvalues_RDA<- hist(genome_scan_RDA$p.values,
+     main= "Histogram of RDA P-values",
+     xlab= "P-values")
 
 #save the histogram
- png(filename="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/pvalues_distribution.png")
-
-# a histogram we want to save
-hist(genome_scan_RDA$p.values)
-
-# call this function to save the file 
-dev.off()
-
+ png(filename="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/Histogram_of_Pvalues_RDA.png");Histogram_of_Pvalues_RDA<- hist(genome_scan_RDA$p.values,
+     main= "Histogram of RDA P-values",
+     xlab= "P-values");dev.off()
 ```
     4. Selection of a threshold
     
@@ -244,15 +244,15 @@ score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$FDR5),]
   geom_vline(xintercept=0, linetype="dashed", color = gray(.80), size=0.6) +
   geom_point(data = score_loci_outliers, aes(x=RDA1*15, y=RDA2*15,colour=FDR5), size = 1.4) +
   geom_segment(data = score_climatic_var, aes(xend=RDA1, yend=RDA2, x=0, y=0), colour="black", size=0.15, linetype=1, arrow=arrow(length = unit(0.02, "npc"))) +
-  geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5, family = "Times") +
+  geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5) +
   xlab(paste0("RDA 1 (",explained_variance_round[1],"%)")) + 
-  ylab(paste0("RDA 1 (",explained_variance_round[2],"%)")) +
-  facet_wrap(~"RDA space: outliers FDR 5%") +
+  ylab(paste0("RDA 2 (",explained_variance_round[2],"%)")) +
+   ggtitle("RDA space: outliers FDR 5%") +
   guides(color=guide_legend(title="Locus type")) +
-  scale_color_manual(values = c("gray90", "#F9A242FF")) +
-  theme_bw(base_size = 11, base_family = "Times") +
-  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size=11))
-
+  scale_color_manual(values = c("lightblue", "#F9A242FF")) +
+  theme_bw(base_size = 11) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))
+ 
  print(biplot_outliers_RDA)
  
  #save
@@ -268,7 +268,7 @@ score_loci_outliers$rank1 <- factor(score_loci_outliers$rank1, levels = c("Neutr
 score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$rank1),]
 
 #Biplot avec les loci outliers et les variables climatiques
-ggplot() +
+#ggplot() +
   geom_hline(yintercept=0, linetype="dashed", color = gray(.80), size=0.6) +
   geom_vline(xintercept=0, linetype="dashed", color = gray(.80), size=0.6) +
   geom_point(data = score_loci_outliers, aes(x=RDA1*15, y=RDA2*15,colour=rank1), size = 1.4) +
