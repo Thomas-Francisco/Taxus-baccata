@@ -30,12 +30,12 @@ library(magrittr)#change columns, rows ...
 
 This script will perform the outliers detection using the LFMM methods (Frichot et al. 2013). This script is based on the LFMM tutorial (Frichot and François) and the tutorial of Brenna R. Forester. 
 
-LFMM is a method that can be univariate or multivariate because we could calculate the association of SNPs with explanatory variables one by one or with all the explanatory variables together. This method can correct for population structure or not. This in a linear methods because it assumes a linear relationship between loci and climatic variables.
-LFMMs are regression models combining fixed (cliamtic variables) and latent effects (parameters influencing the association like population structure) (Caye et al. (2019)). 
+LFMM is a method that can be univariate or multivariate because we could calculate the association of SNPs with explanatory variables one by one or with all the explanatory variables together. This method can correct for population structure or not. This is a linear methods because it assumes a linear relationship between loci and climatic variables.
+LFMMs are regression models combining fixed (climatic variables) and latent effects (parameters influencing the association like population structure) (Caye et al. (2019)). 
 LfMM use a framework of mixte model with latent factor, Latent factor are hidden factors that represent background residual levels of
 population structure. 
-Latent factor are calulating using factorization methods -> that is really close to the method used in PCA -> explain why results of latent factor are close to PCs axis Frichot et al 2013.
-How this work in term of models, the effect of the environmental variables (primary parameters) on the response variables is taking into account while correcting for the population structure -> the position of the individuals or population in a space just like a PCA space if I simplify it. The more the populations are close in the space the more their score will be similar and can explain the genetic variation (because the more the population are closed the more we expect them to have genetic compo) and more the population are far the less their score will explain the genetic variation and then other factor could explain the genetic vatiation. (it's like the example of the weigh explain by the heigh and the sex, regardless of the heigh, we found that the sex has an impact on the weigh, we study the effect of the heigh on the weigh when the sex is constant(we remove the effect of the sex on the weigh by applying is coeeficient) and same things when we study the sex, we study this when the heigh is constant)
+Latent factor are calulating using factorization methods -> that is really close to the method used in PCA -> explain why results of latent factor are close to PCs axis (Frichot et al 2013).
+How this work in term of models: the effect of the environmental variables (primary parameters) on the response variables is taking into account while correcting for the population structure -> the position of the individuals or population in a space just like a PCA space if I simplify it. The more the populations are close in the space the more their score will be similar and can explain the genetic variation (because the more the population are closed the more we expect them to have genetic compo) and more the population are far the less their score will explain the genetic variation and then other factor could explain the genetic variation. (it's like the example of the weigh explain by the heigh and the sex, regardless of the heigh, we found that the sex has an impact on the weigh, we study the effect of the heigh on the weigh when the sex is constant(we remove the effect of the sex on the weigh by applying is coefficient) and same things when we study the sex, we study this when the heigh is constant)
 
 
 There is two types of LFMM analys: 
@@ -59,11 +59,12 @@ To perform LFMM, genomic data needs to be in alleles count so at the individual 
 ```{r load data}
 
 #climatic data at individual level
-climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/climatic_data_indivdual_level.csv",sep=";",dec=",")
+climatic_data <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Climatic_data/corr0.75/climatic_data_indivdual_level_scaled.csv",sep=";",dec=",")
 
 #genomic data alleles count
 load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/Gen_matrix_imp_T_Adapcon_Gentree_475_8616.Rdata")
-genomic_data <- Gen_matrix_imp_T_Adapcon_Gentree_475_8616
+#genomic data_num
+genomic_data <- Gen_matrix_imp_T_Adapcon_Gentree_475_8616 %>% mutate_all( function(x) as.numeric(as.character(x)))
 
 #meta_data
 meta_data_pop <- read.csv("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/Populations/taxus_sample_29pop.csv",h=T,sep=";",dec=",")
@@ -80,11 +81,14 @@ climatic_data_475 <- climatic_data[climatic_data$VCF_ID %in% row.names(Gen_matri
 We need to transform the genomic dataset into a lfmm format 
 
 ```{r genomic data into LFMM format}
+#we can use that or ddiretly genomic_data as imput of LFMM2
+write.lfmm(genomic_data,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9, 
 
-write.lfmm(genomic_data,"C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm")#here the input of write.geno is a dataset with individuals in rows, snps in columns and Na in 9
+climate_format <- climatic_data_475[,-c(1:3)]
+write.env(climate_format, "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/climate_format.env")
 
 #See if the lfmm is in the right format
-test <- data.frame(read.lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm"))
+test <- data.frame(read.lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm"))
 ```
 
 
@@ -94,9 +98,21 @@ Based on the PC analysis with genetic data, it's seems that the 2 first PCs axis
 Latent factor is not working exactly like a PCs so we will perform the latent factor analysis to see how many latent factors are required to discriminate the 3 main genes pools. 
 Moreover, "K may be replaced by estimates of population genetic structure obtained with clustering algorithms like STRUCTURE" according to Pritchard et al. 2000
 
+
+
+```{r}
+project = NULL
+test <- lfmm("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm",
+             "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/climate_format.env",
+             K=2,
+             repetitions=5,
+             project="new")
+```
+
+
 ```{r latent factor}
 
-Run_LFMM2 <- lfmm2(input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/genomic_data.lfmm", env = climatic_data_475[,-c(1:3)], K = 2, effect.sizes = T)
+Run_LFMM2 <- lfmm2(input = genomic_data, env = climatic_data_475[,-c(1:3)], K = 2, effect.sizes = T)
 # GEA significance test
 
 # showing the K = 2 estimated factors
@@ -124,7 +140,7 @@ score_Pca <- data.frame(score_LFMM, row.names (genomic_data))
 print(latent_factor_LFMM2_outliers_selection)
       
  #save
-png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/latent_factor_LFMM2_outliers_selection.png");print(latent_factor_LFMM2_outliers_selection);dev.off()
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/latent_factor_LFMM2_outliers_selection.pdf");print(latent_factor_LFMM2_outliers_selection);dev.off()
 
 ```
 Comparison between the genetic PC and the latent factor with k=2 seems very similar. Based on that and a discussion with Benjamin Dauphin (he told that we should take k= number of groups-1), With 3 main gene pool groups, we will retain k=2. 
@@ -135,7 +151,7 @@ Comparison between the genetic PC and the latent factor with k=2 seems very simi
 ```{r calculate the pvalues}
 #non correcting for GIF
 pv_non_corrected <- lfmm2.test(object = Run_LFMM2,
-input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm",
+input = genomic_data,
 env = climatic_data_475[,-c(1:3)],
 full = T,
 genomic.control = F)
@@ -143,7 +159,7 @@ genomic.control = F)
 
 #correcting for GIF
 pv_corrected <- lfmm2.test(object = Run_LFMM2,
-input = "C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/genomic_data.lfmm",
+input = genomic_data,
 env = climatic_data_475[,-c(1:3)],
 full = T,
 genomic.control = T)
@@ -191,37 +207,46 @@ Arguments to use the univariate vs multivariate models:
 
 
 
-
+We tested the classic threshold 5% and a more relax one 10% 
 
 ```{r threshold outlier detection}
 
 df_pvalues_calibrated <- data.frame(SNP=colnames(genomic_data),pvalues=pv_corrected$pvalues)
 
 #FDR correction
-outliers_FDR5perc <- data.frame(snp_names=colnames(genomic_data) ,qvalues=qvalue(pv_corrected$pvalues)$qvalues)
+outliers_FDR <- data.frame(snp_names=colnames(genomic_data) ,qvalues=qvalue(pv_corrected$pvalues)$qvalues)
 
-#threshold
+#threshold 0.05
 thres_FDR <- 0.05
 
-outliers_T_adapcon_gentree_LFMM <- data.frame(SNP=outliers_FDR5perc$snp_names[which(outliers_FDR5perc$qvalues<thres_FDR)],qvalues = outliers_FDR5perc$qvalues[which(outliers_FDR5perc$qvalues<thres_FDR)])
+outliers_T_adapcon_gentree_LFMM_5perc <- data.frame(SNP=outliers_FDR$snp_names[which(outliers_FDR$qvalues<thres_FDR)],qvalues = outliers_FDR$qvalues[which(outliers_FDR$qvalues<thres_FDR)])
 
-length(which(outliers_FDR5perc$qvalues < thres_FDR)) ## h.w many SNPs have an FDR < 5%?
+length(which(outliers_FDR$qvalues < thres_FDR)) ## how many SNPs we have with an FDR < 5%?
+
+
+#FDR 10% 
+thres_FDR <- 0.1
+
+outliers_T_adapcon_gentree_LFMM_10perc <- data.frame(SNP=outliers_FDR$snp_names[which(outliers_FDR$qvalues<thres_FDR)],qvalues = outliers_FDR$qvalues[which(outliers_FDR$qvalues<thres_FDR)])
+
+length(which(outliers_FDR$qvalues < thres_FDR)) ## how many SNPs we have with an FDR < 5%?
+
 
 
 ```
-
+We plot in a manhattan plot the outliers with an FDR threshold of 5%
 ```{r Manhattan plot }
 #selection of the outliers from FDR 5%
-df_pvalues_calibrated$type <- "Neutral" ;df_pvalues_calibrated$type[df_pvalues_calibrated$SNP%in%outliers_T_adapcon_gentree_LFMM$SNP] <- "Outlier"
+df_pvalues_calibrated$type <- "Neutral" ;df_pvalues_calibrated$type[df_pvalues_calibrated$SNP%in%outliers_T_adapcon_gentree_LFMM_5perc$SNP] <- "Candidates FDR5%"
 df_pvalues_calibrated$type <- as.factor(df_pvalues_calibrated$type)
 
 #Bonferroni threshold
 threshold_bonferroni <- 0.05/nrow(df_pvalues_calibrated)
 
 #plot
- Manhattan_plot_LFMM_FDR_5perc<-ggplot(data = df_pvalues_calibrated_f) +
-  geom_point(aes(x=1:nrow(df_pvalues_calibrated), y=-log10(pvalues), col = Outliers), size=1.4) +
-  scale_color_manual(values = c("lightblue", "orange")) +
+ Manhattan_plot_LFMM_FDR_5perc<-ggplot(data = df_pvalues_calibrated) +
+  geom_point(aes(x=1:nrow(df_pvalues_calibrated), y=-log10(pvalues), col = type), size=1.4) +
+  scale_color_manual(values = c("orange","lightblue")) +
   xlab("Loci") + ylab("-log10(p.values)") +
   geom_hline(yintercept=-log10(threshold_bonferroni), linetype="dashed", color = "red", size=0.6) +
   ggtitle("Manhattan plot LFMM, with FDR 5% threshold") +
@@ -233,7 +258,40 @@ threshold_bonferroni <- 0.05/nrow(df_pvalues_calibrated)
 print(Manhattan_plot_LFMM_FDR_5perc)
       
  #save
-png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Manhattan_plot_LFMM_FDR_5perc.png");print(Manhattan_plot_LFMM_FDR_5perc);dev.off()
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Manhattan_plot_LFMM_FDR_5perc.pdf");print(Manhattan_plot_LFMM_FDR_5perc);dev.off()
+
+```
+
+
+
+We also plot in a manhattan plot the outliers with an FDR threshold of 5% and 10%
+
+```{r Manhattan plot }
+#selection of the outliers from FDR 5%
+df_pvalues_calibrated$type <- "Neutral" 
+df_pvalues_calibrated$type[df_pvalues_calibrated$SNP%in%outliers_T_adapcon_gentree_LFMM_10perc$SNP] <- "Candidates FDR10%"
+df_pvalues_calibrated$type[df_pvalues_calibrated$SNP%in%outliers_T_adapcon_gentree_LFMM_5perc$SNP] <- "Candidates FDR5%"
+df_pvalues_calibrated$type <- as.factor(df_pvalues_calibrated$type)
+
+#Bonferroni threshold
+threshold_bonferroni <- 0.05/nrow(df_pvalues_calibrated)
+
+#plot
+ Manhattan_plot_LFMM_FDR_5_10perc<-ggplot(data = df_pvalues_calibrated) +
+  geom_point(aes(x=1:nrow(df_pvalues_calibrated), y=-log10(pvalues), col = type), size=1.4) +
+  scale_color_manual(values = c("darkgreen","orange","lightblue")) +
+  xlab("Loci") + ylab("-log10(p.values)") +
+  geom_hline(yintercept=-log10(threshold_bonferroni), linetype="dashed", color = "red", size=0.6) +
+  ggtitle("Manhattan plot LFMM, with FDR 5 and 10% threshold") +
+  guides(color=guide_legend(title="Type")) +
+  theme_bw(base_size = 11) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))
+
+
+print(Manhattan_plot_LFMM_FDR_5_10perc)
+      
+ #save
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Manhattan_plot_LFMM_FDR_5_10perc.pdf");print(Manhattan_plot_LFMM_FDR_5_10perc);dev.off()
 
 ```
 
@@ -241,9 +299,17 @@ png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/LFMM/Manhatt
 We need to save the outliers identified for downstream analysis
 
 ```{r save outliers set}
-write_xlsx(outliers_T_adapcon_gentree_LFMM,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM.xlsx")
-save(outliers_T_adapcon_gentree_LFMM, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM.Rdata")
+#FDR 5%
+write_xlsx(outliers_T_adapcon_gentree_LFMM_5perc,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM_5perc.xlsx")
+save(outliers_T_adapcon_gentree_LFMM_5perc, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM_5perc.Rdata")
+
+#FDR 10%
+save(outliers_T_adapcon_gentree_LFMM_10perc, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_LFMM_10perc.Rdata")
+
 ```
+
+
+
 
 
 
