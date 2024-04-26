@@ -34,7 +34,7 @@ They are coming from the script variance_partitioning
 #genomic data
 load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/data_allelic_frequencies_29pop_adapcon_gentree_475_8616.Rdata")
 
-genomic_matrix <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616
+genomic_matrix <- data_allelic_frequencies_29pop_adapcon_gentree_475_8616  
 
 #climatic/structure/IBD
 load("C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/GEA/variance_partitioning/Data_RDA_pRDA_T.Rdata") 
@@ -127,7 +127,7 @@ biplot_populations <- ggplot() +
  print(biplot_populations)
  
  #save
-png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/biplot_RDA_populations.png");print(biplot_populations);dev.off()
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/biplot_RDA_populations.pdf");print(biplot_populations);dev.off()
 
 ```
 Interpretation: We can see that populations more in altitude/ more in the est are on the left along the first axis and populations in less altitute wih warmer temperature are on the right -> RDA1 seems to be a continentality/altitude gradient.
@@ -152,9 +152,13 @@ rdadapt<-function(rda,K)
   return(data.frame(p.values=reschi2test, q.values=q.values_rdadapt))
 }
 
-#Perform the fucntion to calculate the mahalanobis distance and then pvalues/ qvalues
+#Perform the function to calculate the mahalanobis distance and then pvalues/ qvalues
 
 genome_scan_RDA <- rdadapt(RDA_env,2)
+
+#save the pvalues for each snp for selecting snp in LD
+pvalues_RDA_snp <- data.frame(snp_names=colnames(genomic_matrix),pvalues= genome_scan_RDA$p.values)
+save(pvalues_RDA_snp,file="C:/Users/tfrancisco/Documents/Thèse/Data/Espèces/Taxus_baccata/genetic_new/GEA/pvalues_RDA_snp.Rdata" )
 
 #plot the distribution of pvalues 
 Histogram_of_Pvalues_RDA<- hist(genome_scan_RDA$p.values,
@@ -176,6 +180,14 @@ thres_qvalues <- 0.05
 outliers_qvalues_5perc_RDA <- data.frame(Loci = colnames(genomic_matrix)[which(genome_scan_RDA$q.values<thres_qvalues)], p.value = genome_scan_RDA$q.values[which(genome_scan_RDA$q.values<thres_qvalues)], contig = unlist(lapply(strsplit(colnames(genomic_matrix)[which(genome_scan_RDA$q.values<thres_qvalues)], split = "_"), function(x) x[1])))
 
 outliers_qvalues_5perc_RDA
+
+# qvalues < 0.10
+thres_qvalues <- 0.10
+
+outliers_qvalues_10perc_RDA <- data.frame(Loci = colnames(genomic_matrix)[which(genome_scan_RDA$q.values<thres_qvalues)], p.value = genome_scan_RDA$q.values[which(genome_scan_RDA$q.values<thres_qvalues)], contig = unlist(lapply(strsplit(colnames(genomic_matrix)[which(genome_scan_RDA$q.values<thres_qvalues)], split = "_"), function(x) x[1])))
+
+outliers_qvalues_10perc_RDA
+
 
 #threshold pvalues < 0.05 with Bonferonni correction
 thres_pvalues <- 0.05/length(genome_scan_RDA$p.values)
@@ -229,13 +241,14 @@ outliers_extremness <- rbind (cand1,cand2)
 
     5. Graphic representations of the outliers: 
     
+We can represent the candidates and the neutral into the RDA space
 ```{r mahalanobis distance FDR 0.05 threshold}
 
 score_loci <- as.data.frame(scores(RDA_env, choices=c(1:2), display="species", scaling="none"))
 score_loci_outliers <- data.frame(names = row.names(score_loci), score_loci)
 score_loci_outliers$FDR5 <- "Neutral"
-score_loci_outliers$FDR5[score_loci_outliers$names%in%outliers_qvalues_5perc_RDA$Loci] <- "outliers"
-score_loci_outliers$FDR5 <- factor(score_loci_outliers$FDR5, levels = c("Neutral", "outliers"))
+score_loci_outliers$FDR5[score_loci_outliers$names%in%outliers_qvalues_5perc_RDA$Loci] <- "candidates FDR5%"
+score_loci_outliers$FDR5 <- factor(score_loci_outliers$FDR5, levels = c("Neutral", "candidates FDR5%"))
 score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$FDR5),]
 
 #Biplot avec les loci outliers et les variables climatiques
@@ -256,34 +269,42 @@ score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$FDR5),]
  print(biplot_outliers_RDA)
  
  #save
-png("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/biplot_outliers_RDA_FDR_5perc.png");print(biplot_outliers_RDA);dev.off()
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/biplot_outliers_RDA_FDR_5perc.pdf");print(biplot_outliers_RDA);dev.off()
 
 ```
 
+We can also represent the top candidates, the relax ones and the neutral into the RDA space
+```{r mahalanobis distance FDR 0.10 threshold}
 
-```{r extremness along axis, 1% rank}
-score_loci_outliers$rank1 <- "Neutral"
-score_loci_outliers$rank1[score_loci_outliers$names%in%outliers_extremness$snp_names] <- "outliers"
-score_loci_outliers$rank1 <- factor(score_loci_outliers$rank1, levels = c("Neutral", "outliers"))
-score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$rank1),]
+score_loci <- as.data.frame(scores(RDA_env, choices=c(1:2), display="species", scaling="none"))
+score_loci_outliers <- data.frame(names = row.names(score_loci), score_loci)
+score_loci_outliers$FDR5_10 <- "Neutral"
+score_loci_outliers$FDR5_10[score_loci_outliers$names%in%outliers_qvalues_10perc_RDA$Loci] <- "candidates FDR10%"
+score_loci_outliers$FDR5_10[score_loci_outliers$names%in%outliers_qvalues_5perc_RDA$Loci] <- "candidates FDR5%"
+score_loci_outliers$FDR5_10 <- factor(score_loci_outliers$FDR5_10, levels = c("Neutral","candidates FDR10%","candidates FDR5%"))
+score_loci_outliers <- score_loci_outliers[order(score_loci_outliers$FDR5_10),]
 
 #Biplot avec les loci outliers et les variables climatiques
-#ggplot() +
+ biplot_outliers_RDA_relax<- ggplot() +
   geom_hline(yintercept=0, linetype="dashed", color = gray(.80), size=0.6) +
   geom_vline(xintercept=0, linetype="dashed", color = gray(.80), size=0.6) +
-  geom_point(data = score_loci_outliers, aes(x=RDA1*15, y=RDA2*15,colour=rank1), size = 1.4) +
+  geom_point(data = score_loci_outliers, aes(x=RDA1*15, y=RDA2*15,colour=FDR5_10), size = 1.4) +
   geom_segment(data = score_climatic_var, aes(xend=RDA1, yend=RDA2, x=0, y=0), colour="black", size=0.15, linetype=1, arrow=arrow(length = unit(0.02, "npc"))) +
-  geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5, family = "Times") +
-  xlab("RDA 1 (86.5%)") + ylab("RDA 2 (5.1%)") +
-  facet_wrap(~"RDA space: outliers rank 1%") +
+  geom_text(data = score_climatic_var, aes(x=1.1*RDA1, y=1.1*RDA2, label = row.names(score_climatic_var)), size = 2.5) +
+  xlab(paste0("RDA 1 (",explained_variance_round[1],"%)")) + 
+  ylab(paste0("RDA 2 (",explained_variance_round[2],"%)")) +
+   ggtitle("RDA space: outliers FDR 10%") +
   guides(color=guide_legend(title="Locus type")) +
-  scale_color_manual(values = c("gray90", "#F9A242FF")) +
-  theme_bw(base_size = 11, base_family = "Times") +
-  theme(panel.grid = element_blank(), plot.background = element_blank(), panel.background = element_blank(), strip.text = element_text(size=11))
+  scale_color_manual(values = c("lightblue","darkgreen","orange")) +
+  theme_bw(base_size = 11) +
+  theme(legend.position="right", panel.grid = element_blank(), strip.text = element_text(size=11),plot.title = element_text(hjust = 0.5,color = "Black",face="italic"))
+ 
+ print(biplot_outliers_RDA_relax)
+ 
+ #save
+pdf("C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/RDA/biplot_outliers_RDA_FDR_5_10perc.pdf");print(biplot_outliers_RDA_relax);dev.off()
 
 ```
-
-
 
     6. Overlapping between methods
 
@@ -297,8 +318,11 @@ overlapping <- merge(outliers_extremness,outliers_qvalues_5perc_RDA,"snp_names")
 Interpretation: 135 out of the 136 outliers identified by extremeness are overlapping with the 243 of qvalues. 
 
 
-We will use FDR 5% as a threshold to identified snp
-We save the fdr 5% outliers: 
+We will use FDR as a threshold to identified snp
+
+We save the fdr:
+
+    - 5% outliers: 
 
 ```{r save FDR 5% outliers}
 outliers_RDA_FDR5perc_T_Adapcon_gentree <- outliers_qvalues_5perc_RDA[,-3]
@@ -307,4 +331,12 @@ write_xlsx(outliers_RDA_FDR5perc_T_Adapcon_gentree,"C:/Users/tfrancisco/Document
 save(outliers_RDA_FDR5perc_T_Adapcon_gentree, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_RDA_FDR5perc_T_Adapcon_gentree.Rdata")
 ```
 
+    - 10% outliers: 
+
+```{r save FDR 10% outliers}
+outliers_RDA_FDR10perc_T_Adapcon_gentree <- outliers_qvalues_10perc_RDA[,-3]
+
+#write_xlsx(outliers_RDA_FDR10perc_T_Adapcon_gentree,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_RDA_FDR5perc_T_Adapcon_gentree.xlsx")
+save(outliers_RDA_FDR10perc_T_Adapcon_gentree, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_RDA_FDR10perc_T_Adapcon_gentree.Rdata")
+```
 
