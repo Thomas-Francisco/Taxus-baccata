@@ -25,7 +25,7 @@ library(data.table)
 
 ```
 
-BAYPASS is an outlier detection method developped by Gauthier in 2015. The underlying models explicitly account for (and may estimate) the covariance structure among the population allele frequencies that originates from the shared history of the populations. There are 3 models working differently: 
+BAYPASS is an outlier detection method developped by Gautier in 2015. The underlying models explicitly account for (and may estimate) the covariance structure among the population allele frequencies that originates from the shared history of the populations. There are 3 models working differently: 
     - the core model: it's an fst-scan method not taking into account the climatic or environmental variables.
     - the auxiliary covariate model: a GEA method not taking into account the population structure
     - the standard covariate model: GEA method taking into account the population structure. 
@@ -543,7 +543,7 @@ list_mean_BF_clim <- c("mean_bio1_1901_1950_BAYPASS_all_runs_BF_values","mean_bi
 
 
 Then, we can search for outliers using a BF threshold of 10 for each climatic variable. 
-```{r BF threshold}
+```{r threshold BF 10}
 
 thres_BF <- 10 #threshold of BF
 
@@ -563,23 +563,21 @@ for(x in 1:5){
 assign(paste0("outliers_",names_climatic_var),count)
 }
   # Combine the results for each climatic variable to see the number of outliers
-  outliers_summary <- rbind(outliers_bio1_1901_1950,outliers_bio2_1901_1950,outliers_bio4_1901_1950,outliers_bio12_1901_1950,outliers_bio15_1901_1950)
+  outliers_summary_BF10 <- rbind(outliers_bio1_1901_1950,outliers_bio2_1901_1950,outliers_bio4_1901_1950,outliers_bio12_1901_1950,outliers_bio15_1901_1950)
 
 
 #name of the outliers
   
-  outliers_names_summary <- rbind(names_outliers_bio1_1901_1950,names_outliers_bio2_1901_1950,names_outliers_bio4_1901_1950,names_outliers_bio12_1901_1950,names_outliers_bio15_1901_1950)
+  outliers_names_summary_BF_10 <- rbind(names_outliers_bio1_1901_1950,names_outliers_bio2_1901_1950,names_outliers_bio4_1901_1950,names_outliers_bio12_1901_1950,names_outliers_bio15_1901_1950)
   
   
   
   #finally we can search for same outliers across climatic variables
 
-duplicated_loci <- duplicated(outliers_names_summary$Loci) | duplicated(outliers_names_summary$Loci, fromLast = TRUE)
+duplicated_loci_BF10 <- duplicated(outliers_names_summary_BF_10$Loci) | duplicated(outliers_names_summary_BF_10$Loci, fromLast = TRUE)
 
 # Subset the data frame to show only the duplicated loci
-duplicated_outliers <- outliers_names_summary[duplicated_loci, ]
-
-
+duplicated_outliers_BF10 <- outliers_names_summary_BF_10[duplicated_loci_BF10, ]
 ```
 
 We can see that 60 outliers are identified using BAYPASS:      
@@ -594,9 +592,80 @@ We can see that 60 outliers are identified using BAYPASS:
 Finally, we save the set of outliers for downstream analysis 
 ```{r save outliers set}
 
-outliers_T_adapcon_gentree_BAYPASS <- outliers_names_summary[,-2]
+outliers_T_adapcon_gentree_BAYPASS_BF_10 <- outliers_names_summary_BF_10[,-2]
 
-write_xlsx(outliers_T_adapcon_gentree_BAYPASS,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS.xlsx")
-save(outliers_T_adapcon_gentree_BAYPASS, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS.Rdata")
+write_xlsx(outliers_T_adapcon_gentree_BAYPASS_BF_10,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS_BF_10.xlsx")
+save(outliers_T_adapcon_gentree_BAYPASS_BF_10, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS_BF_10.Rdata")
 
 ```
+
+
+We can also make a more relax dataset with a threshold of BF>8: 
+```{r threshold BF 10}
+thres_BF <- 8 #relax threshold
+
+
+for(x in 1:5){
+  #names of the corr matrix for each biovariable
+  names_climatic_var <- names_climatic_variables[x]
+  data <- get(list_mean_BF_clim[x])
+  
+ selection_outliers <- data.frame(Loci=data$names_snps[which(data$BF_values>thres_BF)],BF = data$BF_values[which(data$BF_values>thres_BF)], climatic_variables=names_climatic_var)
+ 
+ assign(paste0("names_outliers_",names_climatic_var),selection_outliers)
+ 
+ # Count the number of outliers for each climatic variable
+  count <- data.frame(Climatic_variable=names_climatic_var,Number_outliers=nrow(selection_outliers))
+  
+  #name the corr_bio with names_corr
+assign(paste0("outliers_",names_climatic_var),count)
+}
+  # Combine the results for each climatic variable to see the number of outliers
+  outliers_summary_BF_8 <- rbind(outliers_bio1_1901_1950,outliers_bio2_1901_1950,outliers_bio4_1901_1950,outliers_bio12_1901_1950,outliers_bio15_1901_1950)
+
+
+#name of the outliers
+  
+  outliers_names_summary_BF8 <- rbind(names_outliers_bio1_1901_1950,names_outliers_bio2_1901_1950,names_outliers_bio4_1901_1950,names_outliers_bio12_1901_1950,names_outliers_bio15_1901_1950)
+  
+  
+  
+  #finally we can search for same outliers across climatic variables
+
+duplicated_loci_BF_8 <- duplicated(outliers_names_summary_BF8$Loci) | duplicated(outliers_names_summary_BF8$Loci, fromLast = TRUE)
+
+# Subset the data frame to show only the duplicated loci
+duplicated_outliers_BF_8 <- outliers_names_summary_BF8[duplicated_loci_BF_8, ]
+
+
+```
+
+
+We can see that 111 outliers are identified using BAYPASS:      
+  - Bio 1:   14
+  - Bio 2:   15
+  - Bio 3:   34
+  - Bio 12:  12
+  - Bio 15:  36
+  
+7 outliers are identified by 2 climatic variables. 
+
+Finally, we save the set of outliers for downstream analysis 
+```{r save outliers set}
+
+outliers_T_adapcon_gentree_BAYPASS_BF_8 <- outliers_names_summary_BF8[,-2]
+
+#write_xlsx(outliers_T_adapcon_gentree_BAYPASS_BF_8,"C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS_BF_8.xlsx")
+save(outliers_T_adapcon_gentree_BAYPASS_BF_8, file="C:/Users/tfrancisco/Documents/Thèse/Results/species/taxus/GEA/outliers/outliers_T_adapcon_gentree_BAYPASS_BF_8.Rdata")
+
+```
+
+
+
+
+
+
+
+
+
+
